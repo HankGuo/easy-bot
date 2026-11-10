@@ -242,6 +242,63 @@ export class HybridRAGEngine {
     return norm > 0 ? vec.map(v => v / norm) : vec;
   }
 
+  public listDocuments(): { id: string; title: string; chunksCount: number; totalTokens: number }[] {
+    const docMap = new Map<string, { id: string; title: string; chunksCount: number; totalTokens: number }>();
+    for (const chunk of this.chunks.values()) {
+      const existing = docMap.get(chunk.documentId) || {
+        id: chunk.documentId,
+        title: chunk.documentTitle,
+        chunksCount: 0,
+        totalTokens: 0
+      };
+      existing.chunksCount += 1;
+      existing.totalTokens += chunk.tokens.length;
+      docMap.set(chunk.documentId, existing);
+    }
+    return Array.from(docMap.values());
+  }
+
+  public removeDocument(documentId: string): boolean {
+    const toDeleteChunkIds: string[] = [];
+    for (const [chunkId, chunk] of this.chunks.entries()) {
+      if (chunk.documentId === documentId) {
+        toDeleteChunkIds.push(chunkId);
+      }
+    }
+    if (toDeleteChunkIds.length === 0) return false;
+
+    for (const chunkId of toDeleteChunkIds) {
+      this.chunks.delete(chunkId);
+      this.docLengths.delete(chunkId);
+    }
+
+    // Clean inverted index
+    for (const [term, postingSet] of this.invertedIndex.entries()) {
+      for (const chunkId of toDeleteChunkIds) {
+        postingSet.delete(chunkId);
+      }
+      if (postingSet.size === 0) {
+        this.invertedIndex.delete(term);
+      }
+    }
+
+    // Recalculate avgDocLength
+    let totalLen = 0;
+    for (const len of this.docLengths.values()) {
+      totalLen += len;
+    }
+    this.avgDocLength = this.docLengths.size > 0 ? totalLen / this.docLengths.size : 1;
+
+    return true;
+  }
+
+  public clearDocuments(): void {
+    this.chunks.clear();
+    this.invertedIndex.clear();
+    this.docLengths.clear();
+    this.avgDocLength = 0;
+  }
+
   public getStats() {
     return {
       totalDocuments: new Set(Array.from(this.chunks.values()).map(c => c.documentId)).size,

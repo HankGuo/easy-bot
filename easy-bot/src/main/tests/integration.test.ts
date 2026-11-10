@@ -214,7 +214,7 @@ test('12. Enterprise IM Suite, Specialists & Connectors', async () => {
   assert.ok(experts.length >= 6);
   assert.ok(connectors.length >= 5);
 
-  assert.ok(experts.some(e => e.name === '张云峰'));
+  assert.ok(experts.some(e => e.name === '马工'));
   assert.ok(connectors.some(c => c.type === 'wecom'));
 
   // Test connector probe

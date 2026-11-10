@@ -500,21 +500,6 @@ export function App() {
                 </div>
                 <span className="text-[10px] text-slate-400 font-mono">Shell/Code</span>
               </button>
-
-              <button
-                onClick={() => setActiveTab('screen')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md font-medium transition ${
-                  activeTab === 'screen'
-                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <Eye className="w-4 h-4 text-slate-600" />
-                  <span>桌面感知与视界</span>
-                </div>
-                <span className="text-[10px] text-slate-400 font-mono">OCR</span>
-              </button>
             </div>
           </div>
 
@@ -741,11 +726,6 @@ export function App() {
           {/* 9. Token Monitor */}
           {activeTab === 'token_monitor' && (
             <TokenMonitor />
-          )}
-
-          {/* 10. Screen Perception */}
-          {activeTab === 'screen' && (
-            <ScreenPerceptionViewer onCapture={handleCaptureScreen} />
           )}
 
           {/* 11. CubeSandbox Monitor */}

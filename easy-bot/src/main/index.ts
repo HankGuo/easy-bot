@@ -13,11 +13,13 @@ import { ScreenPerceptionEngine } from './core/screen-perception.js';
 import { SkillLoader } from './core/skill-loader.js';
 import { AgentGroupCoordinator } from './core/agent-group.js';
 import { IMEngine } from './core/im-engine.js';
+import { KnowledgeDropWatcher } from './core/knowledge-watcher.js';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 4100;
 const WORKSPACE_ROOT = path.resolve(process.env.EASYBOT_WORKSPACE || path.join(process.cwd(), 'workspace'));
 const DATA_DIR = path.resolve(process.env.EASYBOT_DATA || path.join(process.cwd(), '.easybot_data'));
 const SKILLS_DIR = path.resolve(process.env.EASYBOT_SKILLS || path.join(process.cwd(), 'skills'));
+const DROP_DIR = path.resolve(process.env.EASYBOT_KNOWLEDGE_DROP || path.join(process.cwd(), 'knowledge_drop'));
 
 // Initialize Enterprise Core Subsystems
 const sandbox = new SandboxEngine(WORKSPACE_ROOT);
@@ -32,21 +34,54 @@ const skills = new SkillLoader(SKILLS_DIR);
 const agentGroup = new AgentGroupCoordinator(sandbox, router);
 const imEngine = new IMEngine(DATA_DIR, router.getModelClient(), sandbox, rag);
 
-// Seed initial knowledge document for testing
-rag.addDocument(
-  'doc-01',
-  'EasyBot Security Architecture & Sandbox Spec',
-  `EasyBot is an enterprise desktop agent operating system built with high-density Micro-Sandboxing, inspired by TencentCloud CubeSandbox.
-It enforces path-traversal isolation, restricted syscalls, and an auditable event bus.
-Unlike legacy agents that run unsandboxed on user machines with Full Disk Access, EasyBot keeps every task strictly confined within isolated workspace boundaries.`
-);
+// Seed baseline real industrial knowledge assets into drop-folder if empty
+if (!fs.existsSync(DROP_DIR)) {
+  fs.mkdirSync(DROP_DIR, { recursive: true });
+}
 
-rag.addDocument(
-  'doc-02',
-  'Tencent WeKnora Enterprise Hybrid RAG Implementation',
-  `WeKnora uses ParadeDB in PostgreSQL to execute Elasticsearch-grade BM25 keyword matching combined with pgvector dense vectors.
-By utilizing Reciprocal Rank Fusion (RRF with k=60), it achieves over 95% document retrieval accuracy on complex enterprise contracts, PDF tables, and technical specs.`
-);
+const existingDropFiles = fs.readdirSync(DROP_DIR).filter(f => !f.startsWith('.'));
+if (existingDropFiles.length === 0) {
+  fs.writeFileSync(path.join(DROP_DIR, 'SOP-EQ-01_数控机床常见故障与应急排错规程.txt'), `
+【数控机床常见故障代码与应急排错规程 (SOP-EQ-01)】
+1. 故障代码 E-06: 主轴伺服驱动器过载报警
+   - 原因：切削进给量偏大、刀具严重磨损、机械滑台导轨导向润滑不足或丝杠卡入细小铁屑。
+   - 现场标准处置规程：
+     第一步：立即按下操作面板【红色紧急停止按纽】，切断伺服动力电；
+     第二步：戴防割手套手动顺时针微转丝杠，排查机械传动阻滞点；
+     第三步：检查自动润滑注油泵压力表，确认压力维持在 0.4~0.6MPa 范围，油位高于红线；
+     第四步：用压缩空气枪清理丝杠风琴防护罩内铁屑；
+     第五步：静置待主轴伺服电机温升降至 45℃ 以下后，在系统面板按下【ALARM RESET】复位键重新对刀试车。
+2. 故障代码 E-12: 液压夹具夹紧压力不足报警
+   - 原因：液压泵站油位低于低位油位感应线、比例调压阀滤网堵塞、油路存在微渗漏。
+   - 现场处置规程：
+     补充 ISO VG46 抗磨液压油至油窗中上刻度；
+     顺时针微调主减压阀旋钮，使夹具进油管路压力稳定在 3.5~4.0MPa 额定区间。
+`.trim(), 'utf-8');
+
+  fs.writeFileSync(path.join(DROP_DIR, 'SOP-QA-02_制程首件检验与公差配合标准.txt'), `
+【精密加工制程首件检验与公差配合标准 (SOP-QA-02)】
+1. 轴类零件公差配合标准：
+   - 生产执行基轴制配合，主要轴承配合档公差等级严格执行 h6（如 Φ25h6 公差范围为 0 至 -0.009mm）。
+   - 首件车削加工完成后，质检员必须使用数显外径千分尺在三个截面测量圆度与圆柱度，超差一律判定为不合格并停机调机。
+2. 表面粗糙度要求：
+   - 关键密封接触面粗糙度 Ra ≤ 0.8μm，一般滑动导向面 Ra ≤ 1.6μm。
+   - 如发现表面有微小振纹或拉毛，应立即检查刀具前刀面磨损情况，并将走刀进给倍率由 100% 降至 80%。
+`.trim(), 'utf-8');
+
+  fs.writeFileSync(path.join(DROP_DIR, 'SOP-SAFE-03_车间安全生产与消防规程.txt'), `
+【车间安全生产与突发险情应急处置规程 (SOP-SAFE-03)】
+1. 个人劳动防护防护穿戴红线：
+   - 严禁戴手套操作车床、铣床、钻床等旋转类机械机床，长发必须盘入工作帽内。
+   - 涉酸洗、淬火热处理作业必须佩戴护目镜与耐高温防溅面罩。
+2. 消防与电气事故应急：
+   - 发生电气短路打火时，首先扳下分路动力配电箱总空气开关，严禁直接用水扑救带电设备。
+   - 车间主通道、配电箱前 1 米范围内严禁堆放原料木托盘与半成品周转箱，保持生命通道通畅。
+`.trim(), 'utf-8');
+}
+
+// Start Knowledge Drop-Directory Watcher (零保姆热插拔监听器)
+const dropWatcher = new KnowledgeDropWatcher(DROP_DIR, rag);
+dropWatcher.start();
 
 // Create HTTP server for REST, WebSocket & VibeCoding sandboxed preview
 const server = http.createServer((req, res) => {
@@ -208,6 +243,70 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/api/mcp/tools') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(mcp.listTools()));
+    return;
+  }
+
+  // --- Self-Service Knowledge Drop & Ingestion Endpoints (极轻量交付插槽) ---
+  if (url.pathname === '/api/knowledge/documents' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      documents: rag.listDocuments(),
+      watcher: dropWatcher.getStatus(),
+      stats: rag.getStats()
+    }));
+    return;
+  }
+
+  if (url.pathname === '/api/knowledge/upload' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const { filename, content } = JSON.parse(body);
+        if (!filename || !content) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'filename and content are required' }));
+          return;
+        }
+        const result = dropWatcher.saveAndIndexFile(filename, content);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, result, stats: rag.getStats() }));
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  if ((url.pathname === '/api/knowledge/documents' || url.pathname.startsWith('/api/knowledge/documents/')) && req.method === 'DELETE') {
+    const id = url.searchParams.get('id') || url.pathname.split('/').pop() || '';
+    const success = dropWatcher.deleteFile(id) || rag.removeDocument(id);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success, id }));
+    return;
+  }
+
+  if (url.pathname === '/api/knowledge/sync' && req.method === 'POST') {
+    const result = dropWatcher.sync();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true, sync: result, stats: rag.getStats() }));
+    return;
+  }
+
+  // --- Real Telemetry Tracking Endpoints (真实计量监控，无Mock) ---
+  if (url.pathname === '/api/telemetry/tokens' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      records: router.getModelClient().getTelemetryRecords()
+    }));
+    return;
+  }
+
+  if (url.pathname === '/api/telemetry/tokens' && req.method === 'DELETE') {
+    router.getModelClient().clearTelemetry();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true }));
     return;
   }
 

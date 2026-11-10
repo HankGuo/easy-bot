@@ -266,26 +266,26 @@
           <div class="flex items-center gap-3">
             <span class="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center font-bold text-xs font-mono">L6</span>
             <div>
-              <div class="text-sm font-bold text-slate-900">视觉感知与电脑操作层 (Computer Use & Vision)</div>
-              <div class="text-[11px] text-slate-400 font-mono">负责：屏幕截取感知、控件图标视觉识别 (Grounding)、原生键鼠模拟驱动、一键急停安全熔断</div>
+              <div class="text-sm font-bold text-slate-900">自服务知识插槽与热插拔监听层 (Self-Service Ingestion & Drop Watcher)</div>
+              <div class="text-[11px] text-slate-400 font-mono">负责：局域网共享目录热插拔监听、自服务网页拖拽切片入库、REST API 资产网关、非结构化文档热重载</div>
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">MIT / Apache 2.0</span>
-            <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-rose-50 text-rose-700 border border-rose-200">纯视觉+原生驱动</span>
+            <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">MIT / 零保姆交付</span>
+            <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-blue-50 text-blue-700 border border-blue-200">目录热插拔自愈</span>
           </div>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs pt-1">
           <div class="p-2.5 bg-slate-50 rounded-lg">
-            <div class="text-slate-500 text-[11px]">选定开源组件</div>
-            <div class="font-bold text-slate-800 font-mono mt-0.5">Anthropic Computer-Use + OmniParser + Nut.js</div>
-            <div class="text-[10px] text-slate-400 font-mono">github.com/nut-tree/nut.js</div>
+            <div class="text-slate-500 text-[11px]">选定工业级组件</div>
+            <div class="font-bold text-slate-800 font-mono mt-0.5">KnowledgeDropWatcher + Native Ingestion</div>
+            <div class="text-[10px] text-slate-400 font-mono">easy-bot/src/main/core/knowledge-watcher.ts</div>
           </div>
-          <div class="md:col-span-2 p-2.5 bg-rose-50/40 border border-rose-100 rounded-lg text-slate-700 leading-relaxed text-[11px]">
+          <div class="md:col-span-2 p-2.5 bg-blue-50/40 border border-blue-100 rounded-lg text-slate-700 leading-relaxed text-[11px]">
             <strong>选型理由（为什么选它）：</strong><br>
-            • <strong>微软 OmniParser 控件定位</strong>：直接把屏幕截图解析为按钮坐标 `[x,y]`，不需要申请 macOS 敏感的 Accessibility 辅助功能树，准确率极高。<br>
-            • <strong>Nut.js 原生驱动</strong>：全平台原生模拟鼠标移动、拖拽和键盘录入，代码纯净。<br>
-            • <strong>外置一键急停浮窗（Emergency Stop）</strong>：只要用户移动鼠标或按 Esc，系统强制熔断，防止失控。
+            • <strong>零保姆极轻量交付</strong>：彻底终结工程人员人肉清洗废料文档的噩梦，员工像拷 U 盘一样把文件放入 <code>knowledge_drop/</code> 共享目录自动入库。<br>
+            • <strong>增删秒级自动同步</strong>：支持 .txt / .md / .json / .csv 变动自动触发增量切片，删除文件自动注销对应向量与 BM25 倒排索引。<br>
+            • <strong>跨平台纯同构零环境依赖</strong>：纯 TypeScript 原生流式解析，杜绝 C++ 原生动态库在老旧工控机与虚拟机上的编译或缺失风险。
           </div>
         </div>
       </div>

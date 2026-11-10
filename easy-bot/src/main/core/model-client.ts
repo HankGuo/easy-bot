@@ -22,6 +22,19 @@ export interface ChatCompletionMessage {
   }[];
 }
 
+export interface TelemetryRecord {
+  id: string;
+  timestamp: string;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  latencyMs: number;
+  estimatedCost: number;
+  task: string;
+  status: 'success' | 'failed' | 'cached';
+}
+
 /**
  * Universal Custom Model Client
  * Connects to ANY custom OpenAI-compatible endpoint (SenseNova, OpenAI, Ollama, vLLM, corporate gateways)
@@ -29,6 +42,7 @@ export interface ChatCompletionMessage {
  */
 export class ModelClient {
   private config: ModelConfig;
+  private telemetryRecords: TelemetryRecord[] = [];
 
   constructor(initialConfig?: Partial<ModelConfig>) {
     this.config = {
@@ -140,10 +154,24 @@ export class ModelClient {
     tools?: { name: string; description: string; inputSchema: any }[],
     onToken?: (token: string) => void
   ): Promise<{ content: string; toolCalls?: { id: string; name: string; args: Record<string, any> }[] }> {
+    const startTime = Date.now();
     // 1. Fallback to Mock/Offline engine if provider is mock or no API Key provided
     if (this.config.provider === 'mock' || (!this.config.apiKey && this.config.provider !== 'ollama')) {
       const userPrompt = messages[messages.length - 1]?.content || '';
-      return this.offlineSimulatedCompletion(userPrompt, onToken);
+      const res = await this.offlineSimulatedCompletion(userPrompt, onToken);
+      this.recordTelemetry({
+        id: `tel-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        timestamp: new Date().toLocaleTimeString(),
+        model: 'offline-local-sandbox',
+        promptTokens: Math.round(userPrompt.length / 2),
+        completionTokens: Math.round(res.content.length / 2),
+        totalTokens: Math.round((userPrompt.length + res.content.length) / 2),
+        latencyMs: Date.now() - startTime,
+        estimatedCost: 0,
+        task: userPrompt.slice(0, 30) || '离线沙箱执行',
+        status: 'cached'
+      });
+      return res;
     }
 
     // 2. Format OpenAI tools schema
@@ -256,10 +284,46 @@ export class ModelClient {
       };
     });
 
+    const durationMs = Date.now() - startTime;
+    const promptLen = messages.reduce((acc, m) => acc + (m.content?.length || 0), 0);
+    const promptTokens = Math.max(1, Math.round(promptLen / 2));
+    const completionTokens = Math.max(1, Math.round(fullContent.length / 2));
+    const totalTokens = promptTokens + completionTokens;
+    const estimatedCost = (promptTokens * 0.0000015) + (completionTokens * 0.0000025);
+    const taskName = (messages[messages.length - 1]?.content || '智能体推理').slice(0, 35);
+
+    this.recordTelemetry({
+      id: `tel-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: new Date().toLocaleTimeString(),
+      model: this.config.model,
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      latencyMs: durationMs,
+      estimatedCost,
+      task: taskName,
+      status: 'success'
+    });
+
     return {
       content: fullContent,
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined
     };
+  }
+
+  public getTelemetryRecords(): TelemetryRecord[] {
+    return [...this.telemetryRecords];
+  }
+
+  public recordTelemetry(record: TelemetryRecord): void {
+    this.telemetryRecords.unshift(record);
+    if (this.telemetryRecords.length > 100) {
+      this.telemetryRecords.pop();
+    }
+  }
+
+  public clearTelemetry(): void {
+    this.telemetryRecords = [];
   }
 
   private async offlineSimulatedCompletion(
