@@ -131,7 +131,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       status: 'ok',
-      name: 'EduAgent OS',
+      name: 'EasyBot',
       version: '2.0.0-commercial',
       engine: 'DeepSeek Harness (@deepseek-ai/dsh)',
       license: 'MIT',

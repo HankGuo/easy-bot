@@ -24,7 +24,7 @@ export interface ChatCompletionMessage {
 
 /**
  * Universal Custom Model Client
- * Connects to ANY custom OpenAI-compatible endpoint (DeepSeek, Qwen, Ollama, OpenAI, vLLM, corporate gateways)
+ * Connects to ANY custom OpenAI-compatible endpoint (SenseNova, OpenAI, Ollama, vLLM, corporate gateways)
  * or Anthropic endpoints, with full streaming & native tool calling.
  */
 export class ModelClient {

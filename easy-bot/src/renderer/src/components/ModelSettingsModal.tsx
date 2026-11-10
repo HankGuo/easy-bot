@@ -42,7 +42,7 @@ export const ModelSettingsModal: React.FC<Props> = ({ isOpen, onClose, onSaveCon
     { name: 'SenseNova 日日新 (默认)', url: 'https://token.sensenova.cn/v1', model: 'sensenova-6.8-flash-lite', provider: 'openai-compatible' },
     { name: 'DeepSeek (高性价比)', url: 'https://api.deepseek.com/v1', model: 'deepseek-chat', provider: 'openai-compatible' },
     { name: 'OpenAI 官方', url: 'https://api.openai.com/v1', model: 'gpt-4o', provider: 'openai-compatible' },
-    { name: '阿里百炼 (Qwen 通义千问)', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', provider: 'openai-compatible' },
+    { name: '企业自建私有化网关 (vLLM)', url: 'http://localhost:8000/v1', model: 'default', provider: 'openai-compatible' },
     { name: 'Ollama 本地私有化 (免Key)', url: 'http://localhost:11434/v1', model: 'llama3:latest', provider: 'ollama' },
     { name: '离线高保真沙箱 (Mock模式)', url: 'http://127.0.0.1:4100/mock', model: 'mock-agent', provider: 'mock' }
   ];

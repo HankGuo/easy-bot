@@ -196,7 +196,7 @@ export function IMWorkspace({ onSendMessage, onTestConnector, onSwitchTab }: IMW
                   </div>
                   {chan.expertIds?.length > 0 && (
                     <span className="text-[10px] font-mono text-slate-400 group-hover:text-slate-600">
-                      {chan.expertIds.length}位导师
+                      {chan.expertIds.length}位专家
                     </span>
                   )}
                 </button>
@@ -207,7 +207,7 @@ export function IMWorkspace({ onSendMessage, onTestConnector, onSwitchTab }: IMW
           {/* Specialist Direct Message List */}
           <div>
             <div className="px-2.5 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-              <span>导师与助教专家团 (Faculty & TAs)</span>
+              <span>智能专家团队 (Expert Team)</span>
               <span className="text-[10px] text-slate-400 font-mono">{experts.length}位</span>
             </div>
             <div className="space-y-0.5 mt-1">
@@ -232,7 +232,7 @@ export function IMWorkspace({ onSendMessage, onTestConnector, onSwitchTab }: IMW
                     </div>
                   </div>
                   <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition text-blue-600 font-medium">
-                    @咨询
+                    @提问
                   </span>
                 </div>
               ))}
@@ -243,8 +243,8 @@ export function IMWorkspace({ onSendMessage, onTestConnector, onSwitchTab }: IMW
         {/* Connector Fast Status Bar */}
         <div className="p-3 border-t border-slate-200 bg-slate-50/50">
           <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1.5">
-            <span className="font-semibold text-slate-700">高校教学协同生态:</span>
-            <span className="text-emerald-700 font-medium font-mono">6/6 在线</span>
+            <span className="font-semibold text-slate-700">企业协同通道:</span>
+            <span className="text-emerald-700 font-medium font-mono">在线就绪</span>
           </div>
           <div className="flex items-center gap-1.5">
             {connectors.slice(0, 4).map((conn) => (
@@ -369,7 +369,7 @@ export function IMWorkspace({ onSendMessage, onTestConnector, onSwitchTab }: IMW
           <div className="flex items-center gap-1.5 mb-2 overflow-x-auto text-[11px]">
             <span className="text-slate-400 font-medium shrink-0 flex items-center gap-1">
               <AtSign className="w-3 h-3 text-blue-600" />
-              向导师/助教提问:
+              委派专家:
             </span>
             {experts.map(e => (
               <button
@@ -388,7 +388,7 @@ export function IMWorkspace({ onSendMessage, onTestConnector, onSwitchTab }: IMW
               className="px-2 py-0.5 rounded bg-slate-100 hover:bg-amber-50 hover:text-amber-700 text-slate-600 border border-slate-200 transition font-medium shrink-0 flex items-center gap-1"
             >
               <Terminal className="w-3 h-3 text-amber-600" />
-              代码实训沙箱
+              代码沙箱
             </button>
 
             <button
@@ -396,7 +396,7 @@ export function IMWorkspace({ onSendMessage, onTestConnector, onSwitchTab }: IMW
               className="px-2 py-0.5 rounded bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-600 border border-slate-200 transition font-medium shrink-0 flex items-center gap-1"
             >
               <Code2 className="w-3 h-3 text-emerald-600" />
-              实验应用生成
+              应用生成
             </button>
           </div>
 
@@ -413,7 +413,7 @@ export function IMWorkspace({ onSendMessage, onTestConnector, onSwitchTab }: IMW
                   handleSend();
                 }
               }}
-              placeholder="输入学术探讨问题、论文需求或代码调试指令，使用 @导师/助教 委派（按 Enter 即可快速发送）..."
+              placeholder="输入任务需求、架构方案或代码调试指令，使用 @专家 委派（按 Enter 即可快速发送）..."
               className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-md text-xs text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition"
             />
             <button

@@ -377,48 +377,30 @@ export function App() {
     <div className="flex h-screen w-screen overflow-hidden bg-[#f8fafc] text-slate-800 antialiased font-sans select-none">
       {/* Left Sidebar / Industrial Dock - Ant Design Pro Style */}
       <div className="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0 shadow-2xs">
-        {/* Brand App Header */}
+        {/* Brand App Header - Clean Ant Design Pro Style */}
         <div className="h-14 px-4 flex items-center justify-between border-b border-slate-200 bg-white">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center text-white shadow-xs">
-              <BookOpen className="w-4 h-4" />
+            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-sm">
+              <Bot className="w-5 h-5" />
             </div>
             <div>
-              <div className="font-bold text-xs text-slate-900 tracking-tight flex items-center gap-1.5">
-                <span>EduAgent OS</span>
-                <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.2 rounded font-medium">
-                  高校智研实训版
-                </span>
-              </div>
-              <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1.5">
-                <span>v2.0 商业版</span>
-                <span className="text-emerald-600 font-medium font-sans">· DSH引擎已就绪</span>
-              </div>
+              <div className="font-bold text-sm text-slate-900 tracking-tight">EasyBot</div>
+              <div className="text-[10px] text-slate-400 font-mono">Enterprise Agent OS</div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <a
-              href="/solution"
-              target="_blank"
-              rel="noreferrer"
-              className="px-2 py-0.5 text-[10px] font-medium bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded transition"
-              title="查看工业级商用方案白皮书"
-            >
-              商用方案
-            </a>
-            <div className="flex items-center gap-1.5" title={isConnected ? '局域网算力网关在线连接正常' : '网关连接中断'}>
-              <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></span>
-            </div>
+          <div className="flex items-center gap-1.5" title={isConnected ? '网关连接正常' : '网关连接中断'}>
+            <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+            <span className="text-[10px] text-slate-400 font-mono">{isConnected ? '在线' : '离线'}</span>
           </div>
         </div>
 
         {/* Scrollable Navigation Groups */}
         <div className="flex-1 overflow-y-auto p-2 space-y-4 text-xs">
-          {/* Group 1: 课题组学术研讨厅 */}
+          {/* Group 1: 智能体协同大厅 */}
           <div>
             <div className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              课题组协同研讨 (Research IM & TAs)
+              智能体协同 (Agent Workspace)
             </div>
             <div className="space-y-0.5 mt-1">
               <button
@@ -431,7 +413,7 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <MessageSquare className="w-4 h-4 text-blue-600" />
-                  <span>课题组学术研讨厅</span>
+                  <span>专家协同研讨大厅</span>
                 </div>
                 <span className="text-[10px] bg-blue-100 text-blue-800 font-mono px-1 rounded">频道</span>
               </button>
@@ -446,9 +428,9 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Users className="w-4 h-4 text-purple-600" />
-                  <span>导师与助教专家团</span>
+                  <span>专家团队智囊团</span>
                 </div>
-                <span className="text-[10px] text-slate-400 font-mono">6 位导师</span>
+                <span className="text-[10px] text-slate-400 font-mono">6 位专家</span>
               </button>
 
               <button
@@ -461,17 +443,17 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Share2 className="w-4 h-4 text-emerald-600" />
-                  <span>高校教学与协同通道</span>
+                  <span>企业协同消息通道</span>
                 </div>
                 <span className="text-[10px] text-emerald-600 font-mono font-medium">企微/钉/飞</span>
               </button>
             </div>
           </div>
 
-          {/* Group 2: 教学实验与研读工作台 */}
+          {/* Group 2: 研发与执行工作台 */}
           <div>
             <div className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              教学实验与研读 (Lab & Learning)
+              研发与执行 (Dev & Sandbox)
             </div>
             <div className="space-y-0.5 mt-1">
               <button
@@ -484,7 +466,7 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Bot className="w-4 h-4 text-blue-600" />
-                  <span>学术对话与助教答疑</span>
+                  <span>智能助理对话</span>
                 </div>
                 {activeSession && <span className="text-[10px] text-slate-400 font-mono">#{activeSession.messages.length}</span>}
               </button>
@@ -499,7 +481,7 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Code className="w-4 h-4 text-emerald-600" />
-                  <span>交互实验应用生成</span>
+                  <span>应用即时生成 (Vibe)</span>
                 </div>
                 <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1 rounded font-mono">即写即跑</span>
               </button>
@@ -514,9 +496,9 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Terminal className="w-4 h-4 text-amber-600" />
-                  <span>受限安全代码实训沙箱</span>
+                  <span>受限安全代码沙箱</span>
                 </div>
-                <span className="text-[10px] text-slate-400 font-mono">Python/C</span>
+                <span className="text-[10px] text-slate-400 font-mono">Shell/Code</span>
               </button>
 
               <button
@@ -529,17 +511,17 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Eye className="w-4 h-4 text-slate-600" />
-                  <span>课件/论文多模态识图</span>
+                  <span>桌面感知与视界</span>
                 </div>
                 <span className="text-[10px] text-slate-400 font-mono">OCR</span>
               </button>
             </div>
           </div>
 
-          {/* Group 3: 学术文献与科研编排 */}
+          {/* Group 3: 知识检索与流程编排 */}
           <div>
             <div className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              学术文献与流程 (Literature & Pipeline)
+              知识与流程 (Knowledge & Pipeline)
             </div>
             <div className="space-y-0.5 mt-1">
               <button
@@ -552,9 +534,9 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <BookOpen className="w-4 h-4 text-purple-600" />
-                  <span>课程讲义与学术文献库</span>
+                  <span>企业级混合知识库</span>
                 </div>
-                <span className="text-[10px] text-slate-400 font-mono">双路精准查</span>
+                <span className="text-[10px] text-slate-400 font-mono">双路精准</span>
               </button>
 
               <button
@@ -567,7 +549,7 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <GitFork className="w-4 h-4 text-purple-600" />
-                  <span>科研实验流程流水线</span>
+                  <span>自动化任务流水线</span>
                 </div>
                 <span className="text-[10px] text-slate-400 font-mono">DAG流程</span>
               </button>
@@ -582,17 +564,17 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Users className="w-4 h-4 text-indigo-600" />
-                  <span>导师集体同行评审</span>
+                  <span>多专家集群协同评审</span>
                 </div>
-                <span className="text-[10px] text-slate-400 font-mono">PeerReview</span>
+                <span className="text-[10px] text-slate-400 font-mono">共识机制</span>
               </button>
             </div>
           </div>
 
-          {/* Group 4: 教学管理与算力中心 */}
+          {/* Group 4: 治理与系统监控 */}
           <div>
             <div className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              教学管理与算力 (Admin & Compute)
+              系统监控与安全 (Governance & Audit)
             </div>
             <div className="space-y-0.5 mt-1">
               <button
@@ -605,7 +587,7 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Activity className="w-4 h-4 text-blue-600" />
-                  <span>校园算力与Token审计</span>
+                  <span>算力与 Token 监控</span>
                 </div>
                 <span className="text-[10px] text-emerald-600 font-mono font-medium">实时</span>
               </button>
@@ -620,7 +602,7 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Sparkles className="w-4 h-4 text-amber-500" />
-                  <span>教学实训技能包中心</span>
+                  <span>技能扩展生态市场</span>
                 </div>
                 <span className="text-[10px] text-slate-400 font-mono">{skills.length}</span>
               </button>
@@ -635,7 +617,7 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Cpu className="w-4 h-4 text-blue-600" />
-                  <span>实训扩展工具中心</span>
+                  <span>MCP 工具扩展中心</span>
                 </div>
                 <span className="text-[10px] text-slate-400 font-mono">{tools.length}</span>
               </button>
@@ -751,7 +733,7 @@ export function App() {
             <div className="h-full p-4">
               <TerminalConsole
                 onExecuteCommand={handleExecuteSandboxCommand}
-                sandboxRoot={activeSession?.workspacePath || '/Users/hankia/AISpace/edux/easy-bot/workspace'}
+                sandboxRoot={activeSession?.workspacePath || 'workspace/sandbox'}
               />
             </div>
           )}

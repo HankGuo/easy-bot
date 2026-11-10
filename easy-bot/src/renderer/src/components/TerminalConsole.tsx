@@ -95,7 +95,7 @@ export function TerminalConsole({ onExecuteCommand, sandboxRoot }: TerminalConso
           <div className="flex items-center justify-center w-6 h-6 rounded bg-blue-50 text-blue-600 border border-blue-200">
             <TerminalIcon className="w-3.5 h-3.5" />
           </div>
-          <span className="text-xs font-semibold text-slate-800">高校代码实验实训安全终端</span>
+          <span className="text-xs font-semibold text-slate-800">受限代码执行与测试安全终端</span>
           <span className="flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 rounded">
             <Shield className="w-3 h-3" />
             受限隔离保护
@@ -103,7 +103,7 @@ export function TerminalConsole({ onExecuteCommand, sandboxRoot }: TerminalConso
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-slate-400 font-mono hidden md:inline">实验工作区: {sandboxRoot}</span>
+          <span className="text-[11px] text-slate-400 font-mono hidden md:inline">沙箱工作区: {sandboxRoot}</span>
           <button
             onClick={() => setEntries([])}
             className="flex items-center gap-1 px-2 py-1 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-200 rounded transition"
@@ -133,14 +133,14 @@ export function TerminalConsole({ onExecuteCommand, sandboxRoot }: TerminalConso
       {/* Terminal Output Area */}
       <div className="flex-1 p-4 overflow-y-auto bg-slate-950 font-mono text-xs leading-relaxed select-text">
         <div className="text-slate-400 mb-3 pb-2 border-b border-slate-800">
-          EduAgent OS · 高校教学安全实训沙箱终端 (支持 Python、C、Shell 交互实验运行)
+          EasyBot · 受限安全沙箱终端 (支持 Python、Node.js、Shell 交互运行)
           <br />在下方输入指令或点击快捷按钮。系统内置目录越权访问与高危指令实时防御保护。
         </div>
 
         {entries.map((entry) => (
           <div key={entry.id} className="mb-3.5">
             <div className="flex items-center gap-2 text-slate-300 font-semibold mb-1">
-              <span className="text-emerald-400">student@edu-lab</span>
+              <span className="text-emerald-400">agent@easybot-sandbox</span>
               <span className="text-slate-500">:</span>
               <span className="text-blue-400">~</span>
               <span className="text-slate-500">$</span>

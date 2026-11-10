@@ -39,8 +39,8 @@ export const VibeCodingStudio: React.FC<Props> = ({ sessionId, onGenerate }) => 
             <Code className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-slate-800">交互实验应用即时生成工作台 (Interactive Lab Studio)</h2>
-            <p className="text-[11px] text-slate-500">用自然语言快速生成教学课件、实验大屏与算法交互验证应用，即写即跑</p>
+            <h2 className="text-sm font-bold text-slate-800">交互应用与大屏即时生成工作台 (Interactive Studio)</h2>
+            <p className="text-[11px] text-slate-500">用自然语言快速生成业务原型、数据大屏与交互式验证应用，即写即跑</p>
           </div>
         </div>
       </div>

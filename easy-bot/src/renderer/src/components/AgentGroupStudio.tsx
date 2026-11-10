@@ -7,15 +7,15 @@ interface Props {
 }
 
 export const AgentGroupStudio: React.FC<Props> = ({ sessionId, onRunGroup }) => {
-  const [task, setTask] = useState('课题组同行评审：针对毕业课题方案进行学术规范、可行性与实验设计综合评估');
+  const [task, setTask] = useState('企业专家集体评审：针对系统重构方案进行架构规范、安全合规与执行可行性综合评估');
   const [isRunning, setIsRunning] = useState(false);
   const [result, setResult] = useState<any | null>(null);
 
   const team = [
-    { role: 'SUPERVISOR', name: '学术指导导师', color: 'text-blue-700', bg: 'bg-blue-50 border-blue-200' },
-    { role: 'ARCHITECT', name: '数学与算法顾问', color: 'text-purple-700', bg: 'bg-purple-50 border-purple-200' },
-    { role: 'CODER', name: '实验实训助教', color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' },
-    { role: 'REVIEWER', name: '学术规范与查重专家', color: 'text-amber-700', bg: 'bg-amber-50 border-amber-200' }
+    { role: 'ARCHITECT', name: '系统架构师', color: 'text-blue-700', bg: 'bg-blue-50 border-blue-200' },
+    { role: 'ALGORITHM', name: '算法顾问', color: 'text-purple-700', bg: 'bg-purple-50 border-purple-200' },
+    { role: 'ENGINEER', name: '全栈工程师', color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' },
+    { role: 'SECURITY', name: '安全合规官', color: 'text-amber-700', bg: 'bg-amber-50 border-amber-200' }
   ];
 
   const handleRun = async () => {
@@ -37,8 +37,8 @@ export const AgentGroupStudio: React.FC<Props> = ({ sessionId, onRunGroup }) => 
             <Users className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-slate-800">导师集体同行评审与学术研讨 (Peer Review & Consensus)</h2>
-            <p className="text-[11px] text-slate-500">多导师与助教角色动态组队、科研方案多视角交叉审查与开题答辩集体评审</p>
+            <h2 className="text-sm font-bold text-slate-800">专家集群共识与同行评审 (Peer Review & Consensus)</h2>
+            <p className="text-[11px] text-slate-500">多智能体专家角色动态组队、系统方案多视角交叉审查与架构决策集体评审</p>
           </div>
         </div>
         <button

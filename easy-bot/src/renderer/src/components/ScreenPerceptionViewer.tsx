@@ -10,18 +10,18 @@ export function ScreenPerceptionViewer({ onCapture }: ScreenPerceptionViewerProp
   const [snapshot, setSnapshot] = useState<any>({
     timestamp: '11:05:22',
     display: { width: 1920, height: 1080, scale: 2 },
-    activeWindow: 'EduAgent OS 高校实训工作台',
+    activeWindow: 'EasyBot 企业级智能体工作台',
     uiElements: [
-      { id: 'el-1', name: '向导师/助教提问输入框', rect: [120, 840, 800, 56], type: 'input' },
-      { id: 'el-2', name: '发起实验运行指令', rect: [930, 840, 96, 56], type: 'button' },
-      { id: 'el-3', name: '教学代码实训沙箱', rect: [450, 48, 160, 36], type: 'tab' },
-      { id: 'el-4', name: '课程讲义与学术文献库', rect: [650, 48, 200, 36], type: 'search' },
+      { id: 'el-1', name: '智能专家协同交互输入框', rect: [120, 840, 800, 56], type: 'input' },
+      { id: 'el-2', name: '发起自动化执行指令', rect: [930, 840, 96, 56], type: 'button' },
+      { id: 'el-3', name: '受限安全代码沙箱', rect: [450, 48, 160, 36], type: 'tab' },
+      { id: 'el-4', name: '企业规范与知识文档库', rect: [650, 48, 200, 36], type: 'search' },
     ],
     ocrTexts: [
-      'EduAgent OS - 高校智能科研与实验实训工作台',
-      '高校受限安全沙箱隔离保护生效中',
-      '推理引擎: sensenova-6.8-flash-lite (高校局域网网关直连)',
-      '学术文献与课程教材双路检索: 98.4% 匹配度'
+      'EasyBot - 企业级桌面智能体操作系统',
+      '受限安全微沙箱隔离保护生效中',
+      '推理引擎: sensenova-6.8-flash-lite (OpenAI 兼容网关直连)',
+      '企业规范与工程资产双路检索: 98.4% 匹配度'
     ]
   });
 
@@ -46,10 +46,10 @@ export function ScreenPerceptionViewer({ onCapture }: ScreenPerceptionViewerProp
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <Eye className="w-5 h-5 text-blue-600" />
-            课件与实验屏幕多模态感知 (Screen Perception & Multi-Modal OCR)
+            桌面多模态屏幕感知与定位 (Screen Perception & Multi-Modal OCR)
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            教学多模态智能识别：实时捕获教学课件、复杂图表与软件实训界面，提取关键学术信息与操作元素
+            桌面多模态智能识别：实时捕获界面、复杂图表与研发窗口，提取关键文本信息与交互操作元素
           </p>
         </div>
 

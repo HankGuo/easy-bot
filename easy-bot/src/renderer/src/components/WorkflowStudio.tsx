@@ -7,15 +7,15 @@ interface Props {
 
 export const WorkflowStudio: React.FC<Props> = ({ onRunWorkflow }) => {
   const [isRunning, setIsRunning] = useState(false);
-  const [queryInput, setQueryInput] = useState('大模型驱动的高校计算机实训全流程');
+  const [queryInput, setQueryInput] = useState('企业级全栈自动化重构与测试工作流');
   const [runResult, setRunResult] = useState<any | null>(null);
 
   const sampleNodes = [
-    { id: '1', title: '实验任务解析与规范化', type: 'START', desc: '解析学生实验指令与文献参数', icon: Play },
-    { id: '2', title: '课程文献与教材语义检索', type: 'RAG', desc: '课程知识库与实验手册双路匹配', icon: FileText },
-    { id: '3', title: '学术导师推理与方案生成', type: 'LLM', desc: '开题构思与算法实验代码指导', icon: Cpu },
-    { id: '4', title: '受限沙箱运行与结果采集', type: 'SANDBOX', desc: '安全隔离运行并输出控制台/图表数据', icon: Code2 },
-    { id: '5', title: '实验报告归档与导师复核', type: 'END', desc: '生成标准化实验报告与学术评分', icon: CheckCircle2 }
+    { id: '1', title: '任务解析与规范化', type: 'START', desc: '解析业务指令与环境配置参数', icon: Play },
+    { id: '2', title: '企业知识库语义检索', type: 'RAG', desc: '技术规范与工程资产双路混合匹配', icon: FileText },
+    { id: '3', title: '架构师推理与代码生成', type: 'LLM', desc: '方案设计与核心模块编码', icon: Cpu },
+    { id: '4', title: '受限沙箱运行与结果采集', type: 'SANDBOX', desc: '隔离执行与自动化测试用例验证', icon: Code2 },
+    { id: '5', title: '质量审计与交付归档', type: 'END', desc: '安全规则审计与标准化变更交付', icon: CheckCircle2 }
   ];
 
   const handleRun = async () => {
@@ -37,8 +37,8 @@ export const WorkflowStudio: React.FC<Props> = ({ onRunWorkflow }) => {
             <GitFork className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-slate-800">高校科研与实验流程流水线 (EduFlow Engine)</h2>
-            <p className="text-[11px] text-slate-500">基于有向无环图 (DAG) 的自动化多助教协同与实验实训流转系统</p>
+            <h2 className="text-sm font-bold text-slate-800">业务流程编排引擎 (EasyFlow Engine)</h2>
+            <p className="text-[11px] text-slate-500">基于有向无环图 (DAG) 的多智能体自动化研发与协同流转系统</p>
           </div>
         </div>
         <button

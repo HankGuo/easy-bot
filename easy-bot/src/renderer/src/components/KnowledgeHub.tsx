@@ -27,7 +27,7 @@ export const KnowledgeHub: React.FC<Props> = ({ onSearch }) => {
       {/* Header */}
       <div className="flex items-center gap-2 pb-3.5 border-b border-slate-200 mb-4">
         <BookOpen className="w-4 h-4 text-purple-600" />
-        <span className="font-semibold text-slate-800">课程讲义与学术文献库 (双路精准检索)</span>
+        <span className="font-semibold text-slate-800">企业规范与知识文档库 (双路精准检索)</span>
       </div>
 
       {/* Search Input */}
@@ -37,7 +37,7 @@ export const KnowledgeHub: React.FC<Props> = ({ onSearch }) => {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="输入课程知识点、实验要求或论文课题..."
+            placeholder="输入技术概念、规范要求或业务场景..."
             className="w-full bg-slate-50 border border-slate-200 rounded-md pl-8 pr-3 py-2 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 transition"
           />
           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
@@ -51,14 +51,14 @@ export const KnowledgeHub: React.FC<Props> = ({ onSearch }) => {
             <Layers className="w-3 h-3 text-blue-600" /> 精准术语匹配
           </div>
           <div className="font-bold text-slate-800 text-sm">关键词倒排匹配</div>
-          <div className="text-[10px] text-slate-400 mt-0.5">教材概念与专有名词精准命中</div>
+          <div className="text-[10px] text-slate-400 mt-0.5">业务概念与专有名词精准命中</div>
         </div>
         <div className="bg-slate-50 p-3 rounded-md border border-slate-200">
           <div className="text-[10px] text-slate-500 flex items-center gap-1 mb-1 font-medium">
             <Database className="w-3 h-3 text-purple-600" /> 深度语义理解
           </div>
           <div className="font-bold text-slate-800 text-sm">语义多级重排</div>
-          <div className="text-[10px] text-slate-400 mt-0.5">跨句法课题意图高保真匹配</div>
+          <div className="text-[10px] text-slate-400 mt-0.5">跨句法语义意图高保真匹配</div>
         </div>
       </div>
 
@@ -68,10 +68,10 @@ export const KnowledgeHub: React.FC<Props> = ({ onSearch }) => {
           <span>智能检索命中结果</span>
           <span className="text-[10px] text-slate-400 font-mono">命中 {results.length} 项</span>
         </div>
-        {loading && <div className="text-center py-6 text-slate-400">正在检索全校文献与实验教材...</div>}
+        {loading && <div className="text-center py-6 text-slate-400">正在检索知识资产与规范手册...</div>}
         {!loading && results.length === 0 && (
           <div className="text-center py-10 text-slate-400">
-            输入学术问题或课题，即可检索课程讲义、实验手册与参考论文
+            输入业务问题或技术关键词，即可检索企业规范、工程资产与架构文档
           </div>
         )}
         {results.map((item, idx) => (

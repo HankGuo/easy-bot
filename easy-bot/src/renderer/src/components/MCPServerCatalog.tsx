@@ -12,11 +12,11 @@ export const MCPServerCatalog: React.FC<Props> = ({ servers, tools }) => {
     <div className="h-full flex flex-col bg-white border-l border-slate-200 text-xs p-4">
       <div className="flex items-center gap-2 pb-3.5 border-b border-slate-200 mb-4">
         <Cpu className="w-4 h-4 text-blue-600" />
-        <span className="font-semibold text-slate-800">高校教学与实训扩展工具中心 (MCP Hub)</span>
+        <span className="font-semibold text-slate-800">企业级标准扩展工具中心 (MCP Hub)</span>
       </div>
 
       <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center justify-between">
-        <span>已挂载的实验工具服务</span>
+        <span>已挂载的 MCP 服务</span>
         <span className="text-[10px] text-slate-400 font-mono">{servers.length} 个实例</span>
       </div>
 

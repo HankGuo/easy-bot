@@ -61,7 +61,7 @@ export function TokenMonitor() {
       totalTokens: 750,
       latencyMs: 295,
       estimatedCost: 0.00018,
-      task: '教学沙箱工具参数校验与审计',
+      task: '安全沙箱工具参数校验与审计',
       status: 'cached'
     }
   ]);
@@ -79,17 +79,17 @@ export function TokenMonitor() {
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <Activity className="w-5 h-5 text-blue-600" />
-            校园算力与 Token 消耗审计看板 (Campus Compute & Token Monitor)
+            企业级算力与 Token 消耗审计看板 (Enterprise Compute & Token Monitor)
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            高校级高精度计量仪表盘：实时统计院系师生推理 Token 配额、平均响应延迟与本地私有算力负载
+            高精度计量仪表盘：实时统计团队推理 Token 配额、平均响应延迟与私有化算力负载
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <span className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            校园算力直连 (零外部中转与数据外泄)
+            私有算力直连 (零外部中转与数据外泄)
           </span>
         </div>
       </div>

@@ -24,7 +24,7 @@ export interface DSHTaskResult {
 
 /**
  * DeepSeek Harness Industrial Engine Adapter
- * Integrates @deepseek-ai/dsh and Cordis plugin framework into EduAgent OS
+ * Integrates @deepseek-ai/dsh and Cordis plugin framework into EasyBot
  */
 export class DSHEngineAdapter {
   private sandbox: SandboxEngine;
@@ -53,8 +53,8 @@ export class DSHEngineAdapter {
         '@deepseek-ai/dsh-tool-fs',
         '@deepseek-ai/dsh-tool-bash',
         '@deepseek-ai/dsh-mcp-client',
-        'edu-sandbox-jail-plugin',
-        'edu-academic-rag-plugin'
+        'easybot-sandbox-jail-plugin',
+        'easybot-enterprise-rag-plugin'
       ],
       active: true
     };

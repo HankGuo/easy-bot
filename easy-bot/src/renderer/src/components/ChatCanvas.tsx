@@ -89,30 +89,20 @@ export const ChatCanvas: React.FC<Props> = ({ session, onSendMessage, streamingC
               <Bot className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900">EduAgent OS · 高校智能科研与实训工作台</h3>
+              <h3 className="text-base font-bold text-slate-900">EasyBot · 企业级桌面智能体操作系统</h3>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                基于商汤日日新大模型驱动，面向高校教学、论文研读、代码实训与课题组学术研讨，开箱即用。
+                基于通用大模型与 DeepSeek Harness 运行时驱动，具备受限微沙箱隔离、多工具调度、双路知识检索与桌面操作能力。
               </p>
             </div>
             <div className="grid grid-cols-2 gap-3 text-left w-full pt-2">
               <div
                 className="p-3.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 hover:border-blue-400 hover:shadow-xs transition cursor-pointer"
-                onClick={() => setInput('深度解析当前学术论文的核心创新点、实验基线与结论，提炼论文摘要与未来工作')}
+                onClick={() => setInput('为当前工作区编写一个具备异常防御与单元测试的数据清洗与管道处理模块')}
               >
                 <div className="font-semibold text-blue-600 mb-0.5 flex items-center gap-1">
-                  <FileCode className="w-3.5 h-3.5" /> 🎓 学术论文深度研读
+                  <FileCode className="w-3.5 h-3.5" /> 💻 全栈代码生成与重构
                 </div>
-                <div className="text-[11px] text-slate-400">文献创新点提炼与关键实验设计梳理</div>
-              </div>
-
-              <div
-                className="p-3.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 hover:border-blue-400 hover:shadow-xs transition cursor-pointer"
-                onClick={() => setInput('在隔离实训沙箱中编写一段 Python 数据拟合与图表生成脚本，并直接执行')}
-              >
-                <div className="font-semibold text-purple-600 mb-0.5 flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5" /> 💻 安全编程实验实训
-                </div>
-                <div className="text-[11px] text-slate-400">微沙箱隔离运行，防越权防提权</div>
+                <div className="text-[11px] text-slate-400">自动化编写代码并在安全沙箱内执行单测</div>
               </div>
 
               <div
@@ -120,19 +110,29 @@ export const ChatCanvas: React.FC<Props> = ({ session, onSendMessage, streamingC
                 onClick={() => onSwitchTab && onSwitchTab('vibecoding')}
               >
                 <div className="font-semibold text-emerald-600 mb-0.5 flex items-center gap-1">
-                  <Cpu className="w-3.5 h-3.5" /> 📊 交互式实验应用生成
+                  <Cpu className="w-3.5 h-3.5" /> 📊 交互式应用即时生成
                 </div>
-                <div className="text-[11px] text-slate-400">一句话生成可视化交互课件并在沙箱运行</div>
+                <div className="text-[11px] text-slate-400">一句话生成多维数据看板与交互前端组件</div>
               </div>
 
               <div
                 className="p-3.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 hover:border-blue-400 hover:shadow-xs transition cursor-pointer"
-                onClick={() => setInput('召集学术导师与实验助教开展集体研讨，全面评估本课题的研究方案与可行性')}
+                onClick={() => onSwitchTab && onSwitchTab('rag')}
+              >
+                <div className="font-semibold text-purple-600 mb-0.5 flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5" /> 🔍 企业级混合知识库检索
+                </div>
+                <div className="text-[11px] text-slate-400">BM25 词项匹配与向量重排高保真命中</div>
+              </div>
+
+              <div
+                className="p-3.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 hover:border-blue-400 hover:shadow-xs transition cursor-pointer"
+                onClick={() => setInput('检查当前工作区的安全审计策略，执行一次受限沙箱状态健康体检')}
               >
                 <div className="font-semibold text-amber-600 mb-0.5 flex items-center gap-1">
-                  <Terminal className="w-3.5 h-3.5" /> 👥 课题组开题与学术答辩
+                  <Terminal className="w-3.5 h-3.5" /> 🛡️ 沙箱安全审计与隔离
                 </div>
-                <div className="text-[11px] text-slate-400">导师与助教多视角协同给出评审意见</div>
+                <div className="text-[11px] text-slate-400">路径白名单强校验与系统调用审计流水</div>
               </div>
             </div>
           </div>
@@ -162,7 +162,7 @@ export const ChatCanvas: React.FC<Props> = ({ session, onSendMessage, streamingC
                     <ToolExecutionCard
                       key={tc.id}
                       toolCall={tc}
-                      result={session.messages.find(m => m.toolResult?.toolCallId === tc.id)?.toolResult}
+                      result={msg.toolResults?.find(r => r.callId === tc.id)}
                     />
                   ))}
                 </div>

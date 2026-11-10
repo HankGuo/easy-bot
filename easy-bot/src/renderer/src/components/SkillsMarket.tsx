@@ -14,12 +14,12 @@ export const SkillsMarket: React.FC<Props> = ({ skills }) => {
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-slate-800">教学实训技能包中心 (Educational Skills)</h2>
-            <p className="text-[11px] text-slate-500">面向高校不同学科专业与科研课题的标准化技能扩展插件库，即挂即用</p>
+            <h2 className="text-sm font-bold text-slate-800">专业技能扩展中心 (Skills Catalog)</h2>
+            <p className="text-[11px] text-slate-500">面向研发、架构、安全与自动化的标准化智能体技能扩展库，即挂即用</p>
           </div>
         </div>
         <span className="px-3 py-1 rounded-md text-xs font-mono font-medium bg-amber-50 text-amber-800 border border-amber-200">
-          已挂载 {skills.length} 项教学科研技能包
+          已挂载 {skills.length} 项扩展技能包
         </span>
       </div>
 
