@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build artifacts
+dist/
+**/dist/
+
+# Cloned third-party audit repos
+audit_evidence/repos/
+
+# Local runtime storage & temporary execution workspaces
+.easybot_data/
+**/.easybot_data/
+workspace/
+**/workspace/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# OS and logs
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
