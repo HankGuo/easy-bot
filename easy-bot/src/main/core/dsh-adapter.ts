@@ -58,12 +58,13 @@ export class DSHEngineAdapter {
       dshPackage: '@deepseek-ai/dsh',
       dshCliInstalled: this.isDshAvailable,
       runtimeArchitecture: 'Native Event-Driven Agent Loop',
-      active: true
+      dshActive: this.isDshAvailable,
+      nativeActive: true
     };
   }
 
   /**
-   * Dispatches task through DeepSeek Harness CLI if installed, or falls back to native execution
+   * Dispatches task through DeepSeek Harness CLI if installed, or reports unavailability
    */
   public async executeTask(
     sessionId: string,
@@ -92,14 +93,15 @@ export class DSHEngineAdapter {
       }
     }
 
-    // Native fallback
+    // Honest report when DSH CLI is not available
     return {
-      engine: 'EasyBot-Native-Runtime',
+      engine: 'DeepSeekHarness-Adapter',
       version: this.version,
-      success: true,
+      success: false,
       output: '',
       toolCallsExecuted: 0,
-      durationMs: Date.now() - t0
+      durationMs: Date.now() - t0,
+      error: 'DeepSeek Harness CLI (dsh) is not installed in the host environment. EasyBot routes tasks through its native TypeScript AgentRouter instead.'
     };
   }
 

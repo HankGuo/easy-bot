@@ -56,6 +56,36 @@ export class HybridRAGEngine {
   }
 
   /**
+   * Generates real dense vector embedding for text via configured OpenAI/SenseNova/BGE endpoint
+   */
+  public async generateEmbedding(text: string): Promise<number[] | null> {
+    if (!this.embeddingConfig || !this.embeddingConfig.model) {
+      return null;
+    }
+    const cleanBase = (this.embeddingConfig.endpoint || 'https://api.openai.com/v1').replace(/\/+$/, '');
+    const url = `${cleanBase}/embeddings`;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(this.embeddingConfig.apiKey ? { 'Authorization': `Bearer ${this.embeddingConfig.apiKey}` } : {})
+        },
+        body: JSON.stringify({
+          model: this.embeddingConfig.model,
+          input: [text.slice(0, 2048)]
+        }),
+        signal: AbortSignal.timeout(10000)
+      });
+      if (!res.ok) return null;
+      const json: any = await res.json();
+      return json.data?.[0]?.embedding || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Tokenize text into normalized tokens with CJK bigrams and industrial code preservation
    */
   public tokenize(text: string): string[] {
