@@ -52,7 +52,75 @@ export class SessionStore {
         content TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS telemetry_records (
+        id TEXT PRIMARY KEY,
+        timestamp TEXT NOT NULL,
+        model TEXT NOT NULL,
+        prompt_tokens INTEGER NOT NULL,
+        completion_tokens INTEGER NOT NULL,
+        total_tokens INTEGER NOT NULL,
+        latency_ms INTEGER NOT NULL,
+        estimated_cost REAL NOT NULL,
+        task TEXT NOT NULL,
+        status TEXT NOT NULL,
+        token_source TEXT NOT NULL
+      );
     `);
+  }
+
+  public saveTelemetry(record: {
+    id: string;
+    timestamp: string;
+    model: string;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    latencyMs: number;
+    estimatedCost: number;
+    task: string;
+    status: string;
+    tokenSource: string;
+  }) {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO telemetry_records (
+        id, timestamp, model, prompt_tokens, completion_tokens, total_tokens, latency_ms, estimated_cost, task, status, token_source
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      record.id,
+      record.timestamp,
+      record.model,
+      record.promptTokens,
+      record.completionTokens,
+      record.totalTokens,
+      record.latencyMs,
+      record.estimatedCost,
+      record.task,
+      record.status,
+      record.tokenSource
+    );
+  }
+
+  public getTelemetry(limit: number = 100): any[] {
+    const rows = this.db.prepare('SELECT * FROM telemetry_records ORDER BY rowid DESC LIMIT ?').all(limit);
+    return rows.map((r: any) => ({
+      id: r.id,
+      timestamp: r.timestamp,
+      model: r.model,
+      promptTokens: r.prompt_tokens,
+      completionTokens: r.completion_tokens,
+      totalTokens: r.total_tokens,
+      latencyMs: r.latency_ms,
+      estimatedCost: r.estimated_cost,
+      task: r.task,
+      status: r.status,
+      tokenSource: r.token_source
+    }));
+  }
+
+  public clearTelemetry() {
+    this.db.prepare('DELETE FROM telemetry_records').run();
   }
 
   public saveSession(session: { id: string; title: string; backend: string; createdAt: string; workspacePath: string }) {

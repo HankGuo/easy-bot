@@ -403,249 +403,169 @@ export function App() {
         </div>
 
         {/* Scrollable Navigation Groups */}
-        <div className="flex-1 overflow-y-auto p-2 space-y-4 text-xs">
-          {/* Group 1: 智能体协同大厅 */}
+        <div className="flex-1 overflow-y-auto p-2.5 space-y-5 text-xs">
+          {/* Group 1: 核心工作区 */}
           <div>
             {!isSidebarCollapsed && (
-              <div className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                智能体协同 (Agent Workspace)
+              <div className="px-2.5 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                核心工作区 (Workspaces)
               </div>
             )}
-            <div className="space-y-0.5 mt-1">
+            <div className="space-y-1 mt-1">
               <button
                 onClick={() => setActiveTab('im')}
                 title="专家协同研讨大厅"
-                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-xl font-medium transition ${
                   activeTab === 'im'
-                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                    ? 'bg-blue-50/90 text-blue-700 font-semibold shadow-2xs border border-blue-200/60'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <MessageSquare className="w-4 h-4 text-blue-600" />
+                  <MessageSquare className="w-4 h-4 text-blue-600 shrink-0" />
                   {!isSidebarCollapsed && <span>专家协同研讨大厅</span>}
                 </div>
-                {!isSidebarCollapsed && <span className="text-[10px] bg-blue-100 text-blue-800 font-mono px-1 rounded">频道</span>}
+                {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">协同</span>}
               </button>
 
-              <button
-                onClick={() => setActiveTab('experts')}
-                title="专家团队智囊团"
-                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
-                  activeTab === 'experts'
-                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <Users className="w-4 h-4 text-purple-600" />
-                  {!isSidebarCollapsed && <span>专家团队智囊团</span>}
-                </div>
-                {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">6 位专家</span>}
-              </button>
-
-              <button
-                onClick={() => setActiveTab('connectors')}
-                title="企业协同消息通道"
-                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
-                  activeTab === 'connectors'
-                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <Share2 className="w-4 h-4 text-emerald-600" />
-                  {!isSidebarCollapsed && <span>企业协同消息通道</span>}
-                </div>
-                {!isSidebarCollapsed && <span className="text-[10px] text-emerald-600 font-mono font-medium">企微/钉/飞</span>}
-              </button>
-            </div>
-          </div>
-
-          {/* Group 2: 研发与执行工作台 */}
-          <div>
-            {!isSidebarCollapsed && (
-              <div className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                研发与执行 (Dev & Sandbox)
-              </div>
-            )}
-            <div className="space-y-0.5 mt-1">
               <button
                 onClick={() => setActiveTab('chat')}
                 title="智能助理对话"
-                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-xl font-medium transition ${
                   activeTab === 'chat'
-                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                    ? 'bg-blue-50/90 text-blue-700 font-semibold shadow-2xs border border-blue-200/60'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <Bot className="w-4 h-4 text-blue-600" />
+                  <Bot className="w-4 h-4 text-blue-600 shrink-0" />
                   {!isSidebarCollapsed && <span>智能助理对话</span>}
                 </div>
-                {!isSidebarCollapsed && activeSession && <span className="text-[10px] text-slate-400 font-mono">#{activeSession.messages.length}</span>}
+                {!isSidebarCollapsed && activeSession && (
+                  <span className="text-[10px] text-slate-400 font-mono">#{activeSession.messages.length}</span>
+                )}
               </button>
 
               <button
                 onClick={() => setActiveTab('vibecoding')}
                 title="应用即时生成 (Vibe)"
-                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-xl font-medium transition ${
                   activeTab === 'vibecoding'
-                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                    ? 'bg-blue-50/90 text-blue-700 font-semibold shadow-2xs border border-blue-200/60'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <Code className="w-4 h-4 text-emerald-600" />
+                  <Code className="w-4 h-4 text-emerald-600 shrink-0" />
                   {!isSidebarCollapsed && <span>应用即时生成 (Vibe)</span>}
                 </div>
-                {!isSidebarCollapsed && <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1 rounded font-mono">即写即跑</span>}
-              </button>
-
-              <button
-                onClick={() => setActiveTab('terminal')}
-                title="受限安全代码沙箱"
-                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
-                  activeTab === 'terminal'
-                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <Terminal className="w-4 h-4 text-amber-600" />
-                  {!isSidebarCollapsed && <span>受限安全代码沙箱</span>}
-                </div>
-                {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">Shell/Code</span>}
-              </button>
-            </div>
-          </div>
-
-          {/* Group 3: 知识检索与流程编排 */}
-          <div>
-            {!isSidebarCollapsed && (
-              <div className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                知识与流程 (Knowledge & Pipeline)
-              </div>
-            )}
-            <div className="space-y-0.5 mt-1">
-              <button
-                onClick={() => setActiveTab('rag')}
-                title="企业级混合知识库"
-                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
-                  activeTab === 'rag'
-                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <BookOpen className="w-4 h-4 text-purple-600" />
-                  {!isSidebarCollapsed && <span>企业级混合知识库</span>}
-                </div>
-                {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">双路精准</span>}
+                {!isSidebarCollapsed && (
+                  <span className="text-[10px] text-emerald-600 font-mono font-medium">即写即跑</span>
+                )}
               </button>
 
               <button
                 onClick={() => setActiveTab('workflow')}
                 title="自动化任务流水线"
-                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-xl font-medium transition ${
                   activeTab === 'workflow'
-                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                    ? 'bg-blue-50/90 text-blue-700 font-semibold shadow-2xs border border-blue-200/60'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <GitFork className="w-4 h-4 text-purple-600" />
+                  <GitFork className="w-4 h-4 text-purple-600 shrink-0" />
                   {!isSidebarCollapsed && <span>自动化任务流水线</span>}
                 </div>
-                {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">DAG流程</span>}
+                {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">DAG</span>}
               </button>
 
               <button
-                onClick={() => setActiveTab('group')}
-                title="多专家集群协同评审"
-                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
-                  activeTab === 'group'
-                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                onClick={() => setActiveTab('terminal')}
+                title="受限安全代码沙箱"
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-xl font-medium transition ${
+                  activeTab === 'terminal'
+                    ? 'bg-blue-50/90 text-blue-700 font-semibold shadow-2xs border border-blue-200/60'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <Users className="w-4 h-4 text-indigo-600" />
-                  {!isSidebarCollapsed && <span>多专家集群协同评审</span>}
+                  <Terminal className="w-4 h-4 text-amber-600 shrink-0" />
+                  {!isSidebarCollapsed && <span>受限安全代码沙箱</span>}
                 </div>
-                {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">共识机制</span>}
+                {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">Shell</span>}
               </button>
             </div>
           </div>
 
-          {/* Group 4: 治理与系统监控 */}
+          {/* Group 2: 资产与系统治理 */}
           <div>
             {!isSidebarCollapsed && (
-              <div className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                系统监控与安全 (Governance & Audit)
+              <div className="px-2.5 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                资产与治理 (Governance & RAG)
               </div>
             )}
-            <div className="space-y-0.5 mt-1">
+            <div className="space-y-1 mt-1">
               <button
-                onClick={() => setActiveTab('token_monitor')}
-                title="算力与 Token 监控"
-                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
-                  activeTab === 'token_monitor'
-                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                onClick={() => setActiveTab('rag')}
+                title="企业规程混合知识库"
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-xl font-medium transition ${
+                  activeTab === 'rag'
+                    ? 'bg-blue-50/90 text-blue-700 font-semibold shadow-2xs border border-blue-200/60'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <Activity className="w-4 h-4 text-blue-600" />
-                  {!isSidebarCollapsed && <span>算力与 Token 监控</span>}
+                  <BookOpen className="w-4 h-4 text-purple-600 shrink-0" />
+                  {!isSidebarCollapsed && <span>企业规程知识库</span>}
                 </div>
-                {!isSidebarCollapsed && <span className="text-[10px] text-emerald-600 font-mono font-medium">真实遥测</span>}
-              </button>
-
-              <button
-                onClick={() => setActiveTab('skills')}
-                title="技能扩展生态市场"
-                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
-                  activeTab === 'skills'
-                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <Sparkles className="w-4 h-4 text-amber-500" />
-                  {!isSidebarCollapsed && <span>技能扩展生态市场</span>}
-                </div>
-                {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">{skills.length}</span>}
+                {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">BM25</span>}
               </button>
 
               <button
                 onClick={() => setActiveTab('mcp')}
                 title="MCP 工具扩展中心"
-                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-xl font-medium transition ${
                   activeTab === 'mcp'
-                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                    ? 'bg-blue-50/90 text-blue-700 font-semibold shadow-2xs border border-blue-200/60'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <Cpu className="w-4 h-4 text-blue-600" />
-                  {!isSidebarCollapsed && <span>MCP 工具扩展中心</span>}
+                  <Cpu className="w-4 h-4 text-blue-600 shrink-0" />
+                  {!isSidebarCollapsed && <span>MCP 协议工具中心</span>}
                 </div>
                 {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">{tools.length}</span>}
               </button>
 
               <button
-                onClick={() => setActiveTab('sandbox')}
-                title="沙箱安全与审计屏障"
-                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
-                  activeTab === 'sandbox'
-                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                onClick={() => setActiveTab('token_monitor')}
+                title="算力与 Token 监控"
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-xl font-medium transition ${
+                  activeTab === 'token_monitor'
+                    ? 'bg-blue-50/90 text-blue-700 font-semibold shadow-2xs border border-blue-200/60'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  {!isSidebarCollapsed && <span>沙箱安全与审计屏障</span>}
+                  <Activity className="w-4 h-4 text-blue-600 shrink-0" />
+                  {!isSidebarCollapsed && <span>算力与费用审计</span>}
+                </div>
+                {!isSidebarCollapsed && <span className="text-[10px] text-emerald-600 font-mono font-medium">真实遥测</span>}
+              </button>
+
+              <button
+                onClick={() => setActiveTab('sandbox')}
+                title="沙箱安全与审计屏障"
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-xl font-medium transition ${
+                  activeTab === 'sandbox'
+                    ? 'bg-blue-50/90 text-blue-700 font-semibold shadow-2xs border border-blue-200/60'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  {!isSidebarCollapsed && <span>安全屏障与审计</span>}
                 </div>
                 {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">#{auditLogs.length}</span>}
               </button>
@@ -654,19 +574,19 @@ export function App() {
         </div>
 
         {/* Sidebar Footer with Model Pill & Settings */}
-        <div className="p-3 border-t border-slate-200 bg-slate-50/50 space-y-2">
+        <div className="p-3 border-t border-slate-200 bg-slate-50/60 space-y-2">
           {!isSidebarCollapsed ? (
             <>
               {/* Active Engine & Model Indicator */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between px-2 py-1 bg-emerald-50 border border-emerald-200 rounded text-[10px] text-emerald-800">
-                  <span className="font-semibold flex items-center gap-1">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between px-2.5 py-1 bg-emerald-50 border border-emerald-200 rounded-lg text-[10px] text-emerald-800">
+                  <span className="font-semibold flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
-                    执行引擎: DeepSeek Harness
+                    EasyBot Native Core
                   </span>
-                  <span className="font-mono text-[9px] bg-emerald-100 text-emerald-700 px-1 rounded">MIT</span>
+                  <span className="font-mono text-[9px] bg-emerald-100 text-emerald-700 px-1 rounded">127.0.0.1</span>
                 </div>
-                <div className="flex items-center justify-between px-2 py-1.5 bg-white border border-slate-200 rounded-md text-[11px]">
+                <div className="flex items-center justify-between px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-[11px]">
                   <div className="flex items-center gap-1.5 truncate">
                     <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                     <span className="font-semibold text-slate-700 truncate">{activeModel}</span>

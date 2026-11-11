@@ -72,6 +72,7 @@ const mcp = new MCPHostManager();
 const router = new AgentRouter(sandbox, rag, mcp);
 const modelClient = router.getModelClient();
 const store = new SessionStore(DATA_DIR);
+modelClient.setStore(store);
 const workflow = new WorkflowEngine(sandbox, rag, mcp, modelClient);
 const vibecoding = new VibeCodingEngine(sandbox, modelClient, PORT);
 const screen = new ScreenPerceptionEngine(sandbox);

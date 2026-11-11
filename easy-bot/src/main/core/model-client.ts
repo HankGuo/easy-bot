@@ -47,6 +47,11 @@ export interface TelemetryRecord {
 export class ModelClient {
   private config: ModelConfig;
   private telemetryRecords: TelemetryRecord[] = [];
+  private store?: {
+    saveTelemetry: (rec: any) => void;
+    getTelemetry: (limit?: number) => any[];
+    clearTelemetry: () => void;
+  };
 
   constructor(initialConfig?: Partial<ModelConfig>) {
     this.config = {
@@ -400,7 +405,29 @@ export class ModelClient {
     };
   }
 
+  public setStore(store: { saveTelemetry: (rec: any) => void; getTelemetry: (limit?: number) => any[]; clearTelemetry: () => void }): void {
+    this.store = store;
+    try {
+      const persisted = store.getTelemetry(100);
+      if (persisted && persisted.length > 0) {
+        this.telemetryRecords = persisted;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   public getTelemetryRecords(): TelemetryRecord[] {
+    if (this.store) {
+      try {
+        const persisted = this.store.getTelemetry(100);
+        if (persisted && persisted.length > 0) {
+          return persisted;
+        }
+      } catch {
+        // fallback
+      }
+    }
     return [...this.telemetryRecords];
   }
 
@@ -409,10 +436,20 @@ export class ModelClient {
     if (this.telemetryRecords.length > 100) {
       this.telemetryRecords.pop();
     }
+    try {
+      this.store?.saveTelemetry(record);
+    } catch (err: any) {
+      console.warn('[ModelClient] Failed to persist telemetry to SQLite:', err.message);
+    }
   }
 
   public clearTelemetry(): void {
     this.telemetryRecords = [];
+    try {
+      this.store?.clearTelemetry();
+    } catch (err: any) {
+      console.warn('[ModelClient] Failed to clear telemetry from SQLite:', err.message);
+    }
   }
 
   private async offlineSimulatedCompletion(

@@ -339,7 +339,30 @@ export function IMWorkspace({ onSendMessage, onTestConnector, onSwitchTab }: IMW
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            {onSwitchTab && (
+              <div className="hidden lg:flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs mr-2">
+                <button
+                  onClick={() => onSwitchTab('im')}
+                  className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-white text-blue-700 shadow-2xs border border-slate-200/60"
+                >
+                  频道研讨
+                </button>
+                <button
+                  onClick={() => onSwitchTab('experts')}
+                  className="px-2.5 py-1 rounded-md text-[11px] font-medium text-slate-600 hover:text-slate-900 transition"
+                >
+                  专家智囊 ({experts.length})
+                </button>
+                <button
+                  onClick={() => onSwitchTab('connectors')}
+                  className="px-2.5 py-1 rounded-md text-[11px] font-medium text-slate-600 hover:text-slate-900 transition"
+                >
+                  企业通道 ({connectors.length})
+                </button>
+              </div>
+            )}
+
             <div className="flex items-center -space-x-1.5 mr-1" title="频道驻留专家">
               {channelExperts.slice(0, 5).map((exp) => (
                 <img
@@ -361,7 +384,7 @@ export function IMWorkspace({ onSendMessage, onTestConnector, onSwitchTab }: IMW
               title="切换专家与频道详情"
             >
               <Users className="w-3.5 h-3.5" />
-              <span>专家智囊 ({channelExperts.length})</span>
+              <span>频道专家 ({channelExperts.length})</span>
             </button>
           </div>
         </div>
