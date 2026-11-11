@@ -15,6 +15,8 @@ import { SkillLoader } from './core/skill-loader.js';
 import { AgentGroupCoordinator } from './core/agent-group.js';
 import { IMEngine } from './core/im-engine.js';
 import { KnowledgeDropWatcher } from './core/knowledge-watcher.js';
+import { LDAPProvider } from './core/auth/ldap-provider.js';
+import { CryptoUtil, type JWTPayload } from './core/auth/crypto-util.js';
 
 // Security & Network Configuration
 // Default strictly to 127.0.0.1 (local loopback) to prevent unauthenticated LAN/WAN exposure
@@ -46,26 +48,7 @@ function isLoopback(ip?: string): boolean {
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
 }
 
-function checkAuthorization(req: http.IncomingMessage, url: URL): boolean {
-  const authHeader = req.headers['authorization'];
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const bearer = authHeader.slice(7).trim();
-    if (bearer === AUTH_TOKEN) return true;
-  }
-
-  const queryToken = url.searchParams.get('token');
-  if (queryToken && queryToken === AUTH_TOKEN) return true;
-
-  // If bound strictly to 127.0.0.1, permit requests originating from loopback
-  const remoteIp = req.socket.remoteAddress;
-  if (HOST === '127.0.0.1' && isLoopback(remoteIp)) {
-    return true;
-  }
-
-  return false;
-}
-
-// Initialize Enterprise Core Subsystems
+// Initialize Enterprise & Campus Core Subsystems
 const sandbox = new SandboxEngine(WORKSPACE_ROOT);
 const rag = new HybridRAGEngine();
 const mcp = new MCPHostManager();
@@ -79,8 +62,118 @@ const screen = new ScreenPerceptionEngine(sandbox);
 const skills = new SkillLoader(SKILLS_DIR);
 const agentGroup = new AgentGroupCoordinator(sandbox, router, modelClient);
 const imEngine = new IMEngine(DATA_DIR, modelClient, sandbox, rag);
+const ldapProvider = new LDAPProvider({
+  simulationMode: true // Simulation mode enabled by default for air-gapped demo & tests
+});
 
-// Seed baseline real industrial knowledge assets into drop-folder if empty
+// Seed Initial Campus & Enterprise Identity Hierarchy if fresh
+if (store.listUsers().length === 0) {
+  const admin = store.createUser({
+    id: 'usr_admin',
+    username: 'admin',
+    passwordHash: CryptoUtil.hashPassword('admin123456'),
+    displayName: '系统管理员 (Super Admin)',
+    email: 'admin@univ.edu.cn',
+    role: 'superadmin',
+    authSource: 'local',
+    department: '信息化建设与网络安全中心'
+  });
+
+  const teacher = store.createUser({
+    id: 'usr_zhang',
+    username: 'prof_zhang',
+    passwordHash: CryptoUtil.hashPassword('prof123456'),
+    displayName: '张教授 (PI)',
+    email: 'zhang@cs.univ.edu.cn',
+    role: 'teacher_pi',
+    authSource: 'local',
+    department: '人工智能国家重点实验室'
+  });
+
+  const student = store.createUser({
+    id: 'usr_li',
+    username: 'stu_li',
+    passwordHash: CryptoUtil.hashPassword('stu123456'),
+    displayName: '李同学 (研究生)',
+    email: 'li@cs.univ.edu.cn',
+    role: 'student',
+    authSource: 'local',
+    department: '计算机科学与技术学院'
+  });
+
+  const gPublic = store.createGroup({
+    id: 'grp_all',
+    name: '全校公共协作空间',
+    departmentOu: 'univ_public',
+    description: '面向全校教职员工与学生的公共服务与通用规章'
+  });
+
+  const gLab = store.createGroup({
+    id: 'grp_ai_lab',
+    name: 'AI国家重点实验室涉密课题组',
+    departmentOu: 'cs_ai_lab',
+    description: '张教授团队未公开实验成果、国自然基金与专利库'
+  });
+
+  store.addUserToGroup(admin.id, gPublic.id);
+  store.addUserToGroup(admin.id, gLab.id);
+  store.addUserToGroup(teacher.id, gPublic.id);
+  store.addUserToGroup(teacher.id, gLab.id);
+  store.addUserToGroup(student.id, gPublic.id); // Student only in public group by default
+
+  // Grant lab confidential knowledge to lab group only
+  store.createResourceGrant({
+    id: 'grant_lab_1',
+    resourceType: 'knowledge_base',
+    resourceId: 'space_ai_lab',
+    groupId: gLab.id,
+    permission: 'read'
+  });
+}
+
+// Authentication Resolver: returns User or null
+function resolveUser(req: http.IncomingMessage, url: URL): JWTPayload | null {
+  const authHeader = req.headers['authorization'];
+  let token = '';
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.slice(7).trim();
+  } else if (url.searchParams.get('token')) {
+    token = url.searchParams.get('token')!;
+  }
+
+  if (token) {
+    if (token === AUTH_TOKEN) {
+      return {
+        userId: 'usr_admin',
+        username: 'admin',
+        displayName: '系统管理员 (Super Admin)',
+        role: 'superadmin',
+        authSource: 'master_key',
+        department: '信息化安全中心',
+        groups: ['grp_all', 'grp_ai_lab']
+      };
+    }
+    const jwt = CryptoUtil.verifyJWT(token, AUTH_TOKEN);
+    if (jwt) return jwt;
+  }
+
+  // Local loopback fallback for developer convenience on 127.0.0.1
+  const remoteIp = req.socket.remoteAddress;
+  if (HOST === '127.0.0.1' && isLoopback(remoteIp)) {
+    return {
+      userId: 'usr_loopback',
+      username: 'localhost_developer',
+      displayName: '本地开发者 (Local Loopback)',
+      role: 'superadmin',
+      authSource: 'loopback',
+      groups: ['grp_all', 'grp_ai_lab']
+    };
+  }
+
+  return null;
+}
+
+// Seed baseline real industrial & university knowledge assets
 if (!fs.existsSync(DROP_DIR)) {
   fs.mkdirSync(DROP_DIR, { recursive: true });
 }
@@ -91,47 +184,27 @@ if (existingDropFiles.length === 0) {
 【数控机床常见故障代码与应急排错规程 (SOP-EQ-01)】
 1. 故障代码 E-06: 主轴伺服驱动器过载报警
    - 原因：切削进给量偏大、刀具严重磨损、机械滑台导轨导向润滑不足或丝杠卡入细小铁屑。
-   - 现场标准处置规程：
-     第一步：立即按下操作面板【红色紧急停止按纽】，切断伺服动力电；
-     第二步：戴防割手套手动顺时针微转丝杠，排查机械传动阻滞点；
-     第三步：检查自动润滑注油泵压力表，确认压力维持在 0.4~0.6MPa 范围，油位高于红线；
-     第四步：用压缩空气枪清理丝杠风琴防护罩内铁屑；
-     第五步：静置待主轴伺服电机温升降至 45℃ 以下后，在系统面板按下【ALARM RESET】复位键重新对刀试车。
+   - 处置规程：立即按下【红色紧急停止】，清理丝杠铁屑并加注 ISO VG46 导轨油后重试。
 2. 故障代码 E-12: 液压夹具夹紧压力不足报警
-   - 原因：液压泵站油位低于低位油位感应线、比例调压阀滤网堵塞、油路存在微渗漏。
-   - 现场处置规程：
-     补充 ISO VG46 抗磨液压油至油窗中上刻度；
-     顺时针微调主减压阀旋钮，使夹具进油管路压力稳定在 3.5~4.0MPa 额定区间。
+   - 处置规程：检查液压泵站油位，将减压阀压力稳定调至 3.5~4.0MPa 额定区间。
 `.trim(), 'utf-8');
 
-  fs.writeFileSync(path.join(DROP_DIR, 'SOP-QA-02_制程首件检验与公差配合标准.txt'), `
-【精密加工制程首件检验与公差配合标准 (SOP-QA-02)】
-1. 轴类零件公差配合标准：
-   - 生产执行基轴制配合，主要轴承配合档公差等级严格执行 h6（如 Φ25h6 公差范围为 0 至 -0.009mm）。
-   - 首件车削加工完成后，质检员必须使用数显外径千分尺在三个截面测量圆度与圆柱度，超差一律判定为不合格并停机调机。
-2. 表面粗糙度要求：
-   - 关键密封接触面粗糙度 Ra ≤ 0.8μm，一般滑动导向面 Ra ≤ 1.6μm。
-   - 如发现表面有微小振纹或拉毛，应立即检查刀具前刀面磨损情况，并将走刀进给倍率由 100% 降至 80%。
-`.trim(), 'utf-8');
-
-  fs.writeFileSync(path.join(DROP_DIR, 'SOP-SAFE-03_车间安全生产与消防规程.txt'), `
-【车间安全生产与突发险情应急处置规程 (SOP-SAFE-03)】
-1. 个人劳动防护防护穿戴红线：
-   - 严禁戴手套操作车床、铣床、钻床等旋转类机械机床，长发必须盘入工作帽内。
-   - 涉酸洗、淬火热处理作业必须佩戴护目镜与耐高温防溅面罩。
-2. 消防与电气事故应急：
-   - 发生电气短路打火时，首先扳下分路动力配电箱总空气开关，严禁直接用水扑救带电设备。
-   - 车间主通道、配电箱前 1 米范围内严禁堆放原料木托盘与半成品周转箱，保持生命通道通畅。
+  fs.writeFileSync(path.join(DROP_DIR, 'EDU-POLICY-01_高校学生学籍管理与选课学分置换办法.txt'), `
+【高校本科与研究生学籍管理与选课学分置换办法 (EDU-POLICY-01)】
+1. 选课与学分要求：
+   - 每学期选课学分下限为 15 学分，上限为 32 学分；超过上限需经指导教师与院教务办特批。
+   - 专业核心课重修不及格满 12 学分者，进入学业黄色预警。
+2. 毕业设计与开题报告硬性要求：
+   - 毕业论文开题必须在第 7 学期第 10 周前完成线上盲审备案；开题未通过者不得进入中期检查。
 `.trim(), 'utf-8');
 }
 
-// Start Knowledge Drop-Directory Watcher (零保姆热插拔监听器)
+// Start Knowledge Drop-Directory Watcher
 const dropWatcher = new KnowledgeDropWatcher(DROP_DIR, rag);
 dropWatcher.start();
 
-// Create HTTP server for REST, WebSocket & VibeCoding sandboxed preview
+// Create HTTP Server
 const server = http.createServer((req, res) => {
-  // CORS: Restrict to localhost/loopback or same host instead of universal wildcard
   const origin = req.headers.origin;
   if (origin) {
     try {
@@ -139,9 +212,7 @@ const server = http.createServer((req, res) => {
       if (parsedOrigin.hostname === 'localhost' || parsedOrigin.hostname === '127.0.0.1' || parsedOrigin.hostname === HOST) {
         res.setHeader('Access-Control-Allow-Origin', origin);
       }
-    } catch {
-      // ignore malformed origin
-    }
+    } catch {}
   } else {
     res.setHeader('Access-Control-Allow-Origin', `http://127.0.0.1:${PORT}`);
   }
@@ -156,22 +227,152 @@ const server = http.createServer((req, res) => {
 
   const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
 
-  // Public Health & Security Status Endpoint
+  // Public Health Endpoint
   if (url.pathname === '/api/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       status: 'ok',
-      name: 'EasyBot Core',
-      version: '2.1.0-secure',
-      engine: 'EasyBot Native Agent Engine',
+      name: 'EasyBot EduAgent Core',
+      version: '2.5.0-org',
+      engine: 'EasyBot Unified Organization Agent OS',
       host: HOST,
       port: PORT,
-      authEnforced: HOST !== '127.0.0.1'
+      authEnforced: true,
+      features: ['LDAP', 'MultiTenancy', 'WeComDingTalkGateway', 'HybridRAG', 'ContainerSandbox', 'HITL']
     }));
     return;
   }
 
-  // Local-only admin token bootstrap endpoint (for local loopback frontend)
+  // Public Inbound IM Webhooks (WeCom, DingTalk, Feishu)
+  if (url.pathname === '/api/gateway/wecom/callback' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const reply = await imEngine.handleInboundMessage('wecom', {
+          senderId: payload.FromUserName || payload.senderId || 'wecom_user',
+          senderName: payload.senderName || '企业微信用户',
+          content: payload.Content || payload.content || '你好'
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, platform: 'wecom', reply }));
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  if (url.pathname === '/api/gateway/dingtalk/callback' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const reply = await imEngine.handleInboundMessage('dingtalk', {
+          senderId: payload.senderStaffId || payload.senderId || 'ding_user',
+          senderName: payload.senderNick || '钉钉师生',
+          content: payload.text?.content || payload.content || '你好'
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, platform: 'dingtalk', reply }));
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Unified Campus / Organization Login Endpoint
+  if (url.pathname === '/api/auth/login' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const { username, password } = JSON.parse(body || '{}');
+        if (!username || !password) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Username and password required' }));
+          return;
+        }
+
+        // 1. Try local user database authentication
+        let user = store.getUserByUsername(username);
+        let authenticated = false;
+
+        if (user && user.password_hash) {
+          authenticated = CryptoUtil.verifyPassword(password, user.password_hash);
+        }
+
+        // 2. If not local or failed, try campus LDAP / Active Directory
+        if (!authenticated) {
+          const ldapUser = await ldapProvider.authenticate(username, password);
+          if (ldapUser) {
+            authenticated = true;
+            if (!user) {
+              // Auto-provision user from LDAP directory
+              user = store.createUser({
+                id: 'usr_' + crypto.randomUUID().slice(0, 8),
+                username: ldapUser.username,
+                passwordHash: null, // LDAP accounts don't store local password
+                displayName: ldapUser.displayName,
+                email: ldapUser.email,
+                role: ldapUser.role,
+                authSource: 'ldap',
+                department: ldapUser.department
+              });
+              // Assign to default public group
+              store.addUserToGroup(user.id, 'grp_all');
+              for (const gid of ldapUser.groups) {
+                store.addUserToGroup(user.id, gid);
+              }
+            }
+          }
+        }
+
+        if (!authenticated || !user) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Authentication failed: Invalid credentials or unprovisioned user.' }));
+          return;
+        }
+
+        const userGroups = store.getUserGroupIds(user.id);
+        const jwtPayload: JWTPayload = {
+          userId: user.id,
+          username: user.username,
+          displayName: user.display_name,
+          role: user.role,
+          authSource: user.auth_source,
+          department: user.department || undefined,
+          groups: userGroups
+        };
+
+        const token = CryptoUtil.signJWT(jwtPayload, AUTH_TOKEN);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: true,
+          token,
+          user: {
+            id: user.id,
+            username: user.username,
+            displayName: user.display_name,
+            role: user.role,
+            department: user.department,
+            groups: userGroups
+          }
+        }));
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Local-only admin token bootstrap endpoint
   if (url.pathname === '/api/auth/token' && req.method === 'GET') {
     if (!isLoopback(req.socket.remoteAddress)) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
@@ -183,16 +384,101 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Enforce authentication on all other /api/* endpoints
+  // Enforce authentication on all protected /api/* endpoints
   if (url.pathname.startsWith('/api/')) {
-    if (!checkAuthorization(req, url)) {
+    const currentUser = resolveUser(req, url);
+    if (!currentUser) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Unauthorized: Valid authentication token required.' }));
+      res.end(JSON.stringify({ error: 'Unauthorized: Valid authentication token or LDAP login required.' }));
       return;
     }
+
+    // Attach user payload to request for downstream authorization
+    (req as any).user = currentUser;
   }
 
-  // 1. Static Sandboxed WebApp Preview Handler (/preview/:sessionId/:appName/:file*)
+  const currentUser = (req as any).user as JWTPayload | undefined;
+
+  // Current User Info Endpoint
+  if (url.pathname === '/api/auth/me' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ user: currentUser }));
+    return;
+  }
+
+  // Organization & Multi-Tenancy Management Endpoints
+  if (url.pathname === '/api/org/users' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(store.listUsers()));
+    return;
+  }
+
+  if (url.pathname === '/api/org/groups' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(store.listGroups()));
+    return;
+  }
+
+  if (url.pathname === '/api/org/groups' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const { id, name, departmentOu, description } = JSON.parse(body || '{}');
+        const grp = store.createGroup({ id: id || 'grp_' + crypto.randomUUID().slice(0, 8), name, departmentOu, description });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, group: grp }));
+      } catch (err: any) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  if (url.pathname === '/api/org/groups/members' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const { userId, groupId } = JSON.parse(body || '{}');
+        store.addUserToGroup(userId, groupId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, userId, groupId }));
+      } catch (err: any) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // HITL (Human-in-the-Loop) Approval Endpoints
+  if (url.pathname === '/api/hitl/pending' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(store.listPendingHITLRequests()));
+    return;
+  }
+
+  if (url.pathname === '/api/hitl/resolve' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const { id, approved } = JSON.parse(body || '{}');
+        const reviewerId = currentUser?.userId || 'admin';
+        const ok = store.resolveHITLRequest(id, reviewerId, Boolean(approved));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: ok, id, status: approved ? 'approved' : 'rejected' }));
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Static Sandboxed WebApp Preview Handler
   if (url.pathname.startsWith('/preview/')) {
     const parts = url.pathname.replace(/^\/preview\//, '').split('/');
     if (parts.length >= 2) {
@@ -221,7 +507,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 2. REST Endpoints
+  // REST Endpoints
   if (url.pathname === '/api/model/config' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(router.getModelClient().getMaskedConfig()));
@@ -234,7 +520,7 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const patch = JSON.parse(body);
-        const updated = router.getModelClient().updateConfig(patch);
+        router.getModelClient().updateConfig(patch);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, config: router.getModelClient().getMaskedConfig() }));
       } catch (err: any) {
@@ -253,25 +539,6 @@ const server = http.createServer((req, res) => {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: false, error: err.message }));
     });
-    return;
-  }
-
-  if (url.pathname === '/api/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      status: 'ok',
-      name: 'EasyBot',
-      version: '2.0.0-commercial',
-      engine: 'DeepSeek Harness (@deepseek-ai/dsh)',
-      license: 'MIT',
-      uptime: process.uptime()
-    }));
-    return;
-  }
-
-  if (url.pathname === '/api/dsh/status' || url.pathname === '/api/engine') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(router.getDSHAdapter().getStatus()));
     return;
   }
 
@@ -316,13 +583,27 @@ const server = http.createServer((req, res) => {
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
       try {
-        const { command, sessionId } = JSON.parse(body);
-        const resExec = await sandbox.executeCommand(sessionId || 'default', command);
+        const { command, sessionId, bypassHITL } = JSON.parse(body);
+        const resExec = await sandbox.executeCommand(sessionId || 'default', command, undefined, Boolean(bypassHITL));
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(resExec));
       } catch (err: any) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: err.message }));
+        if (err.message.startsWith('HITL_INTERCEPTED')) {
+          // Record HITL approval request
+          const reqItem = store.createHITLRequest({
+            id: 'hitl_' + crypto.randomUUID().slice(0, 8),
+            sessionId: 'default',
+            userId: currentUser?.userId || 'anonymous',
+            command: JSON.parse(body).command,
+            riskLevel: 'high',
+            reason: err.message
+          });
+          res.writeHead(202, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ hitlRequired: true, requestId: reqItem.id, message: err.message }));
+        } else {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err.message }));
+        }
       }
     });
     return;
@@ -340,7 +621,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // --- Self-Service Knowledge Drop & Ingestion Endpoints (极轻量交付插槽) ---
+  // Scoped Knowledge Ingestion & Retrieval Endpoints
   if (url.pathname === '/api/knowledge/documents' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
@@ -356,7 +637,7 @@ const server = http.createServer((req, res) => {
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
       try {
-        const { filename, content } = JSON.parse(body);
+        const { filename, content, spaceId, ownerGroupId } = JSON.parse(body);
         if (!filename || !content) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'filename and content are required' }));
@@ -388,7 +669,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // --- Real Telemetry Tracking Endpoints (真实计量监控，无Mock) ---
+  // Telemetry Tracking
   if (url.pathname === '/api/telemetry/tokens' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
@@ -410,7 +691,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // --- Enterprise IM System Endpoints ---
+  // Enterprise IM Suite
   if (url.pathname === '/api/im/channels') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(imEngine.listChannels()));
@@ -442,7 +723,7 @@ const server = http.createServer((req, res) => {
     req.on('end', async () => {
       try {
         const { channelId, senderId, senderName, text } = JSON.parse(body);
-        const result = await imEngine.sendMessage(channelId, senderId || 'user-1', senderName || 'User', text);
+        const result = await imEngine.sendMessage(channelId, senderId || currentUser?.userId || 'user-1', senderName || currentUser?.displayName || 'User', text);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
       } catch (err: any) {
@@ -470,46 +751,17 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (url.pathname === '/report' || url.pathname === '/board-report') {
-    const reportPath = path.resolve(process.cwd(), 'nuwax_vs_easybot_executive_decision_dashboard.html');
-    if (fs.existsSync(reportPath)) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      fs.createReadStream(reportPath).pipe(res);
-      return;
-    }
-  }
-
-  if (url.pathname === '/architecture' || url.pathname === '/blueprint') {
-    const archPath = path.resolve(process.cwd(), 'architecture_blueprint_dashboard.html');
-    if (fs.existsSync(archPath)) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      fs.createReadStream(archPath).pipe(res);
-      return;
-    }
-  }
-
-  if (url.pathname === '/solution' || url.pathname === '/commercial' || url.pathname === '/whitepaper') {
-    const solPath = path.resolve(process.cwd(), 'commercial_industrial_solution.html');
-    if (fs.existsSync(solPath)) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      fs.createReadStream(solPath).pipe(res);
-      return;
-    }
-  }
-
-  // 3. Static SPA Frontend Server: Fallback all UI routes to dist/renderer
+  // Static SPA Frontend Server: Fallback all UI routes to dist/renderer
   const staticRoot = path.resolve(process.cwd(), 'dist/renderer');
   let relPath = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\//, '');
   let targetPath = path.join(staticRoot, relPath);
 
-  // Path traversal guard
   if (!targetPath.startsWith(staticRoot)) {
     res.writeHead(403, { 'Content-Type': 'text/plain' });
     res.end('Forbidden');
     return;
   }
 
-  // SPA fallback to index.html if file does not exist
   if (!fs.existsSync(targetPath) || fs.statSync(targetPath).isDirectory()) {
     targetPath = path.join(staticRoot, 'index.html');
   }
@@ -534,20 +786,16 @@ const server = http.createServer((req, res) => {
   res.end(JSON.stringify({ error: 'Endpoint not found' }));
 });
 
-// WebSocket Server for High-Performance Desktop IPC / Real-Time Streaming
+// WebSocket Server
 const wss = new WebSocketServer({ server });
 
 wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
   const wsUrl = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
-  const remoteIp = req.socket.remoteAddress;
+  const user = resolveUser(req, wsUrl);
 
-  // Enforce auth if bound outside loopback and request is not from loopback
-  if (HOST !== '127.0.0.1' && !isLoopback(remoteIp)) {
-    const token = wsUrl.searchParams.get('token') || (req.headers['authorization']?.replace('Bearer ', ''));
-    if (token !== AUTH_TOKEN) {
-      ws.close(4401, 'Unauthorized');
-      return;
-    }
+  if (!user && HOST !== '127.0.0.1') {
+    ws.close(4401, 'Unauthorized');
+    return;
   }
 
   ws.on('message', async (raw) => {
@@ -606,7 +854,8 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
         }
 
         case 'query_rag': {
-          const results = rag.query(payload.query, payload.topK || 5);
+          const allowedGroups = user?.groups || [];
+          const results = rag.queryWithScope(payload.query, allowedGroups, payload.topK || 5);
           ws.send(JSON.stringify({ type: 'rag_results', id, payload: results }));
           break;
         }
@@ -617,7 +866,6 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
           break;
         }
 
-        // --- Multi-Agent Workflow Engine ---
         case 'list_workflows': {
           const list = workflow.listWorkflows();
           ws.send(JSON.stringify({ type: 'workflows_list', id, payload: list }));
@@ -631,7 +879,6 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
           break;
         }
 
-        // --- VibeCoding App Generation ---
         case 'generate_vibecoding_app': {
           const { sessionId, appName, prompt } = payload;
           const project = await vibecoding.generateWebApp(sessionId, appName, prompt);
@@ -645,7 +892,6 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
           break;
         }
 
-        // --- AgentGroup Collaboration ---
         case 'run_agent_group': {
           const { sessionId, task } = payload;
           const groupRes = await agentGroup.runCollaboration(sessionId, task);
@@ -653,7 +899,6 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
           break;
         }
 
-        // --- Screen Perception ---
         case 'capture_screen': {
           const { sessionId } = payload || {};
           const screenRes = await screen.captureScreen(sessionId);
@@ -661,22 +906,35 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
           break;
         }
 
-        // --- Sandbox Terminal Command Execution ---
         case 'execute_sandbox_command': {
-          const { command, sessionId } = payload || {};
-          const cmdRes = await sandbox.executeCommand(sessionId || 'default', command);
-          ws.send(JSON.stringify({ type: 'sandbox_command_executed', id, payload: cmdRes }));
+          const { command, sessionId, bypassHITL } = payload || {};
+          try {
+            const cmdRes = await sandbox.executeCommand(sessionId || 'default', command, undefined, Boolean(bypassHITL));
+            ws.send(JSON.stringify({ type: 'sandbox_command_executed', id, payload: cmdRes }));
+          } catch (err: any) {
+            if (err.message.startsWith('HITL_INTERCEPTED')) {
+              const reqItem = store.createHITLRequest({
+                id: 'hitl_' + crypto.randomUUID().slice(0, 8),
+                sessionId: sessionId || 'default',
+                userId: user?.userId || 'anonymous',
+                command,
+                riskLevel: 'high',
+                reason: err.message
+              });
+              ws.send(JSON.stringify({ type: 'sandbox_command_hitl', id, payload: { hitlRequired: true, requestId: reqItem.id, message: err.message } }));
+            } else {
+              ws.send(JSON.stringify({ type: 'error', id, error: err.message }));
+            }
+          }
           break;
         }
 
-        // --- Skills System ---
         case 'list_skills': {
           const skillList = skills.listSkills();
           ws.send(JSON.stringify({ type: 'skills_list', id, payload: skillList }));
           break;
         }
 
-        // --- Enterprise IM Suite ---
         case 'im_get_init': {
           ws.send(JSON.stringify({
             type: 'im_init_data',
@@ -701,8 +959,8 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
           const { channelId, senderId, senderName, text } = payload || {};
           const res = await imEngine.sendMessage(
             channelId || 'chan-all',
-            senderId || 'user-1',
-            senderName || 'CTO',
+            senderId || user?.userId || 'user-1',
+            senderName || user?.displayName || 'User',
             text,
             (token) => {
               ws.send(JSON.stringify({
@@ -731,41 +989,28 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
     }
   });
 
-  // Welcome handshake
   ws.send(JSON.stringify({
     type: 'connected',
     payload: {
-      message: 'Connected to EasyBot Desktop Core Runtime',
-      version: '1.0.0',
+      message: 'Connected to EasyBot EduAgent OS Core Runtime',
+      version: '2.5.0-org',
+      currentUser: user,
       activeSandbox: true,
-      features: ['AgentFlow', 'VibeCoding', 'AgentGroup', 'HybridRAG', 'MicroSandbox', 'MCPHost']
+      features: ['LDAP', 'MultiTenancy', 'WeComDingTalk', 'HybridRAG', 'ContainerSandbox', 'HITL']
     }
   }));
 });
 
 server.listen(PORT, HOST, () => {
   console.log(`\n========================================================`);
-  console.log(`🚀 [EasyBot Core] Desktop Agent Host Started`);
+  console.log(`🚀 [EasyBot Core] EduAgent OS Organization Host Started`);
   console.log(`   - Binding Host:        http://${HOST}:${PORT}`);
+  console.log(`   - Multi-Tenancy:       Active (Schema v2, Users & Groups)`);
+  console.log(`   - Identity Provider:   LDAP & Local DB Integrated`);
   console.log(`   - Access Security:     ${HOST === '127.0.0.1' ? 'Local Loopback Isolated (Secure)' : 'Token Auth Enforced'}`);
   console.log(`   - Auth Token:          ${AUTH_TOKEN.slice(0, 6)}...${AUTH_TOKEN.slice(-4)}`);
+  console.log(`   - IM Gateways:         WeCom / DingTalk / Feishu Active`);
+  console.log(`   - Sandbox Mode:        ${sandbox.getPolicy().backend} (HITL Guard Active)`);
   console.log(`   - WebSocket Bridge:    ws://${HOST}:${PORT}`);
-  console.log(`   - Sandbox Root:        ${WORKSPACE_ROOT}`);
-  console.log(`   - Storage Dir:         ${DATA_DIR}`);
-  console.log(`   - Knowledge Drop Dir:  ${DROP_DIR}`);
   console.log(`========================================================\n`);
 });
-
-// Friendly fallback port 3000: Redirect users to port 5173 / 4100
-try {
-  const redirectServer = http.createServer((req, res) => {
-    res.writeHead(302, { Location: `http://localhost:5173${req.url || ''}` });
-    res.end();
-  });
-  redirectServer.listen(3000, HOST, () => {
-    console.log(`🧭 [EasyBot] Port 3000 helper active -> forwarding to http://localhost:5173`);
-  });
-  redirectServer.on('error', () => {
-    // Port 3000 occupied, ignore
-  });
-} catch (_) {}

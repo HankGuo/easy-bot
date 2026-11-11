@@ -243,3 +243,135 @@ test('12. Enterprise IM Suite, Specialists & Connectors', async () => {
   fs.rmSync(tmpWs, { recursive: true, force: true });
   fs.rmSync(tmpData, { recursive: true, force: true });
 });
+
+test('13. Campus LDAP Authentication Provider & Filter Escaping', async () => {
+  const { LDAPProvider } = await import('../core/auth/ldap-provider.js');
+  const provider = new LDAPProvider({ simulationMode: true });
+
+  // Test filter injection escaping
+  const maliciousInput = 'admin)(|(uid=*';
+  const escaped = LDAPProvider.escapeFilter(maliciousInput);
+  assert.ok(!escaped.includes(')('));
+  assert.ok(escaped.includes('\\28') || escaped.includes('\\29') || escaped.includes('\\2a'));
+
+  // Test faculty login simulation
+  const faculty = await provider.authenticate('t_zhang', 'password123');
+  assert.ok(faculty !== null);
+  assert.equal(faculty?.role, 'teacher_pi');
+  assert.equal(faculty?.department, '人工智能国家重点实验室');
+
+  // Test student login simulation
+  const student = await provider.authenticate('stu_wang', 'password123');
+  assert.ok(student !== null);
+  assert.equal(student?.role, 'student');
+  assert.equal(student?.department, '计算机科学与技术学院');
+
+  // Test invalid short password
+  const failed = await provider.authenticate('stu_wang', '123');
+  assert.equal(failed, null);
+});
+
+test('14. Organization Multi-Tenancy & Resource Grants Isolation', async () => {
+  const { SessionStore } = await import('../core/session-store.js');
+  const { CryptoUtil } = await import('../core/auth/crypto-util.js');
+  const tmpData = path.join(process.cwd(), 'tmp_test_org');
+  const store = new SessionStore(tmpData);
+
+  // 1. Password hashing & verification
+  const pass = 'CampusSecure2026!';
+  const hash = CryptoUtil.hashPassword(pass);
+  assert.ok(CryptoUtil.verifyPassword(pass, hash));
+  assert.ok(!CryptoUtil.verifyPassword('WrongPass', hash));
+
+  // 2. JWT token generation & payload verification
+  const jwt = CryptoUtil.signJWT({
+    userId: 'usr_test',
+    username: 'test_prof',
+    displayName: '测试教授',
+    role: 'teacher_pi',
+    authSource: 'ldap',
+    groups: ['grp_lab_ai']
+  }, 'secret-test-key', 3600);
+
+  const decoded = CryptoUtil.verifyJWT(jwt, 'secret-test-key');
+  assert.ok(decoded !== null);
+  assert.equal(decoded?.username, 'test_prof');
+  assert.equal(decoded?.role, 'teacher_pi');
+
+  // 3. User, group & grant isolation in SQLite
+  const u1 = store.createUser({
+    id: 'usr_u1',
+    username: 'user_lab_a',
+    passwordHash: null,
+    displayName: '实验室A成员',
+    role: 'student'
+  });
+  const g1 = store.createGroup({ id: 'grp_lab_a', name: '国家重点实验室A组' });
+  const g2 = store.createGroup({ id: 'grp_lab_b', name: '外系非涉密组' });
+
+  store.addUserToGroup(u1.id, g1.id);
+  const u1Groups = store.getUserGroupIds(u1.id);
+  assert.deepEqual(u1Groups, ['grp_lab_a']);
+
+  // Grant access on confidential lab knowledge space to grp_lab_a only
+  store.createResourceGrant({
+    id: 'grant_1',
+    resourceType: 'knowledge_base',
+    resourceId: 'doc_confidential_grant_proposal',
+    groupId: g1.id
+  });
+
+  // User 1 has access; Group 2 has NO access
+  assert.equal(store.checkResourceAccess('knowledge_base', 'doc_confidential_grant_proposal', u1Groups), true);
+  assert.equal(store.checkResourceAccess('knowledge_base', 'doc_confidential_grant_proposal', ['grp_lab_b']), false);
+
+  fs.rmSync(tmpData, { recursive: true, force: true });
+});
+
+test('15. HITL Dangerous Command Interception & Resolution', async () => {
+  const tmpWs = path.join(process.cwd(), 'tmp_test_hitl');
+  const sandbox = new SandboxEngine(tmpWs);
+
+  // rm -rf is flagged as high-risk requiring approval
+  const check = sandbox.checkRequiresHITL('rm -rf ./temp_cache');
+  assert.equal(check.requiresHITL, true);
+  assert.equal(check.riskLevel, 'high');
+
+  // Normal safe command does not trigger HITL
+  const safeCheck = sandbox.checkRequiresHITL('echo "Hello Lab"');
+  assert.equal(safeCheck.requiresHITL, false);
+
+  // Executing dangerous command directly throws HITL_INTERCEPTED error
+  await assert.rejects(
+    async () => {
+      await sandbox.executeCommand('default', 'rm -rf ./temp_cache');
+    },
+    (err: any) => err.message.startsWith('HITL_INTERCEPTED')
+  );
+
+  fs.rmSync(tmpWs, { recursive: true, force: true });
+});
+
+test('16. IM Gateway Inbound Dispatch & Specialist Routing', async () => {
+  const { IMEngine } = await import('../core/im-engine.js');
+  const { ModelClient } = await import('../core/model-client.js');
+  const tmpWs = path.join(process.cwd(), 'tmp_test_im_gw');
+  const tmpData = path.join(process.cwd(), 'tmp_test_im_data');
+  const sandbox = new SandboxEngine(tmpWs);
+  const rag = new HybridRAGEngine();
+  const client = new ModelClient({ provider: 'mock' });
+  const im = new IMEngine(tmpData, client, sandbox, rag);
+
+  // Test inbound WeCom academic dispatch
+  const wecomInbound = await im.handleInboundMessage('wecom', {
+    senderId: 'wecom_student_01',
+    senderName: '研究生小赵',
+    content: '请教关于国家自然科学基金立项和学术论文引用的规范要求'
+  });
+
+  assert.ok(wecomInbound.expertName.includes('张导师') || wecomInbound.expertName.includes('专家'));
+  assert.ok(wecomInbound.reply.length > 0);
+
+  fs.rmSync(tmpWs, { recursive: true, force: true });
+  fs.rmSync(tmpData, { recursive: true, force: true });
+});

@@ -85,6 +85,32 @@ export class IMEngine {
     const activeModelName = this.modelClient?.getConfig()?.model || process.env.OPENAI_MODEL || 'default-chat-model';
     const defaultExperts: Expert[] = [
       {
+        id: 'exp-academic',
+        name: '张导师',
+        avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=academic',
+        title: '高校科研与论文指导专家 (Academic & Research Advisor)',
+        description: '国家重点实验室资深科研带头人。精通中英文学术论文写作、国家自然科学基金申报、实验方案设计与学术规范审查。',
+        systemPrompt: '你是高校科研与研究生论文指导专家张导师。熟悉国家自然科学基金立项要求、顶级期刊投稿规范与学术伦理。能够严谨客观地评审开题报告、审阅实验设计并指引文献调研方向。',
+        skills: ['literature-review', 'grant-proposal-check', 'academic-writing-audit'],
+        model: activeModelName,
+        status: 'online',
+        color: '#722ed1',
+        tags: ['科研立项', '论文审稿', '文献综述', '基金申报']
+      },
+      {
+        id: 'exp-edu-affairs',
+        name: '王老师',
+        avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=affairs',
+        title: '教务处与学籍规章答疑专家 (Academic Affairs Guide)',
+        description: '熟悉高校本科与研究生培养方案、选课排课规程、学分置换、毕业设计要求与出国成绩审核。',
+        systemPrompt: '你是高校教务处综合事务主管王老师。解答各类选课、免修、学分置换、考场纪律与毕业资格审核咨询。回答亲切和蔼、条理清晰，引述具体规章条款。',
+        skills: ['curriculum-policy-search', 'credit-exchange-guide', 'graduation-audit'],
+        model: activeModelName,
+        status: 'online',
+        color: '#13c2c2',
+        tags: ['培养方案', '选课答疑', '学分审核', '毕业规章']
+      },
+      {
         id: 'exp-equip',
         name: '马工',
         avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=equip',
@@ -397,7 +423,8 @@ export class IMEngine {
     senderId: string,
     senderName: string,
     text: string,
-    onToken?: (token: string) => void
+    onToken?: (token: string) => void,
+    overrideExpertId?: string
   ): Promise<{ userMessage: IMMessage; expertMessage?: IMMessage }> {
     const channel = this.channels.get(channelId);
     if (!channel) throw new Error(`Channel ${channelId} not found`);
@@ -424,11 +451,17 @@ export class IMEngine {
     // 2. Determine target expert to reply
     let targetExpert: Expert | undefined;
 
-    // Check @mentions in text
-    for (const exp of this.experts.values()) {
-      if (text.includes(`@${exp.name}`) || text.includes(`@${exp.title.split(' ')[0]}`)) {
-        targetExpert = exp;
-        break;
+    if (overrideExpertId && this.experts.has(overrideExpertId)) {
+      targetExpert = this.experts.get(overrideExpertId);
+    }
+
+    if (!targetExpert) {
+      // Check @mentions in text
+      for (const exp of this.experts.values()) {
+        if (text.includes(`@${exp.name}`) || text.includes(`@${exp.title.split(' ')[0]}`)) {
+          targetExpert = exp;
+          break;
+        }
       }
     }
 
@@ -554,5 +587,35 @@ export class IMEngine {
         message: `[${conn.name}] 连接探测失败: ${err.message}`
       };
     }
+  }
+
+  /**
+   * Handle incoming messages from WeCom, DingTalk, Feishu webhooks
+   */
+  public async handleInboundMessage(
+    platform: 'wecom' | 'dingtalk' | 'feishu',
+    body: { senderId: string; senderName: string; content: string; channelId?: string; expertId?: string }
+  ): Promise<{ expertName: string; reply: string; channelId: string }> {
+    const channelId = body.channelId || 'chan-all';
+    let targetExpertId = body.expertId;
+    if (!targetExpertId) {
+      const lower = body.content.toLowerCase();
+      if (lower.includes('设备') || lower.includes('故障') || lower.includes('报警') || lower.includes('机床')) {
+        targetExpertId = 'exp-equip';
+      } else if (lower.includes('选课') || lower.includes('学分') || lower.includes('教务') || lower.includes('毕业')) {
+        targetExpertId = 'exp-edu-affairs';
+      } else if (lower.includes('科研') || lower.includes('论文') || lower.includes('基金') || lower.includes('课题')) {
+        targetExpertId = 'exp-academic';
+      } else {
+        targetExpertId = 'exp-admin';
+      }
+    }
+
+    const result = await this.sendMessage(channelId, body.senderId, body.senderName, body.content, undefined, targetExpertId);
+    return {
+      expertName: result.expertMessage?.senderName || 'EasyBot 专家',
+      reply: result.expertMessage?.content || '已收到需求，处理完成。',
+      channelId
+    };
   }
 }

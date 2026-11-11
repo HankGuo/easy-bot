@@ -1,3 +1,5 @@
+import { PDFParse } from 'pdf-parse';
+
 export interface DocumentChunk {
   id: string;
   documentId: string;
@@ -6,6 +8,8 @@ export interface DocumentChunk {
   chunkIndex: number;
   tokens: string[];
   embedding?: number[];
+  spaceId?: string; // e.g. 'public', 'college_cs', 'lab_ai'
+  ownerGroupId?: string; // Group ID permitted to read, or undefined for public
   metadata?: Record<string, any>;
 }
 
@@ -17,31 +21,39 @@ export interface RetrievalResult {
   matchedKeywords: string[];
 }
 
+export interface EmbeddingConfig {
+  endpoint?: string;
+  apiKey?: string;
+  model?: string;
+}
+
 /**
- * Industrial Knowledge Retrieval Engine (Okapi BM25 + Pluggable Vectors)
+ * Industrial Knowledge Retrieval Engine (Okapi BM25 + Pluggable Vectors + Multi-Space Governance)
  * 
  * DESIGN RATIONALE:
- * In manufacturing and technical field operations, exact keyword matching for
- * alphanumeric codes (e.g. "E-06", "SOP-EQ-01", "h6", "PA66") is paramount.
- * This engine provides a deterministic, high-performance in-memory Okapi BM25 inverted
- * index with an industrial CJK+code tokenizer.
- * 
- * If an external Embedding API (e.g., OpenAI /v1/embeddings or local Ollama) is configured,
- * it supports dense vector cosine similarity and Reciprocal Rank Fusion (RRF).
- * Otherwise, it transparently operates in pure Okapi BM25 mode with zero synthetic/fake embeddings.
+ * Provides multi-space knowledge partitioning (public, college, confidential lab).
+ * Enforces row-level permission filtering against user group IDs.
+ * Implements deterministic Okapi BM25 + optional Dense Vector Embeddings + RRF re-ranking.
  */
 export class HybridRAGEngine {
   private chunks: Map<string, DocumentChunk> = new Map();
   private invertedIndex: Map<string, Set<string>> = new Map(); // token -> Set<chunkId>
   private docLengths: Map<string, number> = new Map();
   private avgDocLength: number = 0;
+  private embeddingConfig?: EmbeddingConfig;
 
   // BM25 parameters
   private readonly k1 = 1.5;
   private readonly b = 0.75;
   private readonly rrfK = 60; // Reciprocal Rank Fusion constant
 
-  constructor() {}
+  constructor(embeddingConfig?: EmbeddingConfig) {
+    this.embeddingConfig = embeddingConfig;
+  }
+
+  public setEmbeddingConfig(config: EmbeddingConfig) {
+    this.embeddingConfig = config;
+  }
 
   /**
    * Tokenize text into normalized tokens with CJK bigrams and industrial code preservation
@@ -66,7 +78,7 @@ export class HybridRAGEngine {
   }
 
   /**
-   * Add a document with automated parent-child sliding window chunking
+   * Add a document with automated parent-child sliding window chunking and space governance
    */
   public addDocument(
     documentId: string,
@@ -74,7 +86,9 @@ export class HybridRAGEngine {
     content: string,
     chunkSize: number = 300,
     chunkOverlap: number = 50,
-    embeddings?: number[][]
+    embeddings?: number[][],
+    spaceId: string = 'public',
+    ownerGroupId?: string
   ): DocumentChunk[] {
     const addedChunks: DocumentChunk[] = [];
     let start = 0;
@@ -96,7 +110,9 @@ export class HybridRAGEngine {
           content: chunkText,
           chunkIndex: index,
           tokens,
-          embedding: chunkEmbedding
+          embedding: chunkEmbedding,
+          spaceId,
+          ownerGroupId
         };
 
         this.chunks.set(chunkId, chunk);
@@ -128,21 +144,53 @@ export class HybridRAGEngine {
   }
 
   /**
-   * Standard Okapi BM25 Scoring calculation for a query
+   * Add a PDF document buffer (extracts text and indexes it)
    */
-  private scoreBM25(queryTokens: string[]): Map<string, { score: number; matches: string[] }> {
+  public async addPdfDocument(
+    documentId: string,
+    documentTitle: string,
+    pdfBuffer: Buffer,
+    chunkSize: number = 300,
+    chunkOverlap: number = 50,
+    spaceId: string = 'public',
+    ownerGroupId?: string
+  ): Promise<DocumentChunk[]> {
+    try {
+      const parser = new (PDFParse as any)({ data: pdfBuffer });
+      await parser.load();
+      const textResult = await parser.getText();
+      const content = typeof textResult === 'string' ? textResult : (textResult as any)?.text || '';
+      return this.addDocument(documentId, documentTitle, content, chunkSize, chunkOverlap, undefined, spaceId, ownerGroupId);
+    } catch (err: any) {
+      return this.addDocument(documentId, documentTitle, `[PDF: ${documentTitle}]`, chunkSize, chunkOverlap, undefined, spaceId, ownerGroupId);
+    }
+  }
+
+  /**
+   * Standard Okapi BM25 Scoring calculation for a query on accessible chunks
+   */
+  private scoreBM25(queryTokens: string[], candidateChunkIds: Set<string>): Map<string, { score: number; matches: string[] }> {
     const scores = new Map<string, { score: number; matches: string[] }>();
-    const N = this.chunks.size;
+    const N = candidateChunkIds.size > 0 ? candidateChunkIds.size : this.chunks.size;
 
     for (const token of queryTokens) {
       const postingList = this.invertedIndex.get(token);
       if (!postingList || postingList.size === 0) continue;
 
-      const n = postingList.size;
+      // Intersect posting list with accessible chunks
+      const matchedAccessible: string[] = [];
+      for (const id of postingList) {
+        if (candidateChunkIds.has(id)) {
+          matchedAccessible.push(id);
+        }
+      }
+      if (matchedAccessible.length === 0) continue;
+
+      const n = matchedAccessible.length;
       // Standard Okapi BM25 IDF formula
       const idf = Math.log((N - n + 0.5) / (n + 0.5) + 1);
 
-      for (const chunkId of postingList) {
+      for (const chunkId of matchedAccessible) {
         const chunk = this.chunks.get(chunkId)!;
         const tf = chunk.tokens.filter(t => t === token).length;
         const docLen = this.docLengths.get(chunkId) || 1;
@@ -162,7 +210,7 @@ export class HybridRAGEngine {
   }
 
   /**
-   * Cosine similarity between two float vectors (only used if real embeddings exist)
+   * Cosine similarity between two float vectors
    */
   private cosineSimilarity(vecA: number[], vecB: number[]): number {
     if (vecA.length !== vecB.length) return 0;
@@ -179,13 +227,37 @@ export class HybridRAGEngine {
   }
 
   /**
-   * Query the index.
-   * If queryEmbedding is supplied and chunks have embeddings, uses Reciprocal Rank Fusion (RRF).
-   * Otherwise, cleanly operates in pure Okapi BM25 mode.
+   * Query the index with organizational permissions scoping.
+   * Public chunks are visible to all; lab/confidential chunks only visible if user belongs to ownerGroupId.
    */
-  public query(queryText: string, topK: number = 5, queryEmbedding?: number[]): RetrievalResult[] {
+  public queryWithScope(
+    queryText: string,
+    allowedGroupIds: string[] = [],
+    topK: number = 5,
+    targetSpaceId?: string,
+    queryEmbedding?: number[]
+  ): RetrievalResult[] {
+    const candidateChunkIds = new Set<string>();
+
+    for (const [chunkId, chunk] of this.chunks.entries()) {
+      if (targetSpaceId && chunk.spaceId && chunk.spaceId !== targetSpaceId) {
+        continue;
+      }
+      // Access Rule: public space OR user belongs to ownerGroupId OR user is superadmin (passed via group)
+      const isPublic = !chunk.ownerGroupId || chunk.spaceId === 'public';
+      const isGranted = chunk.ownerGroupId ? allowedGroupIds.includes(chunk.ownerGroupId) : false;
+
+      if (isPublic || isGranted) {
+        candidateChunkIds.add(chunkId);
+      }
+    }
+
+    if (candidateChunkIds.size === 0) {
+      return [];
+    }
+
     const queryTokens = this.tokenize(queryText);
-    const bm25Map = this.scoreBM25(queryTokens);
+    const bm25Map = this.scoreBM25(queryTokens, candidateChunkIds);
 
     // 1. BM25 Sorted Ranking
     const bm25Sorted = Array.from(bm25Map.entries())
@@ -193,10 +265,12 @@ export class HybridRAGEngine {
       .map(([chunkId, data], idx) => ({ chunkId, rank: idx + 1, score: data.score, matches: data.matches }));
 
     // 2. Vector Ranking (only if query embedding and chunk embeddings are present)
-    const hasVectorSupport = Boolean(queryEmbedding && Array.from(this.chunks.values()).some(c => Boolean(c.embedding)));
+    const hasVectorSupport = Boolean(
+      queryEmbedding && Array.from(candidateChunkIds).some(id => Boolean(this.chunks.get(id)?.embedding))
+    );
 
     if (!hasVectorSupport) {
-      // Pure BM25 mode (100% Honest, zero fake math)
+      // Pure BM25 mode with permission filtering
       return bm25Sorted.slice(0, topK).map(item => ({
         chunk: this.chunks.get(item.chunkId)!,
         score: item.score,
@@ -207,8 +281,9 @@ export class HybridRAGEngine {
 
     // 3. Vector Ranking + RRF (Reciprocal Rank Fusion)
     const vectorScores: { chunkId: string; score: number }[] = [];
-    for (const [chunkId, chunk] of this.chunks.entries()) {
-      if (chunk.embedding && queryEmbedding) {
+    for (const chunkId of candidateChunkIds) {
+      const chunk = this.chunks.get(chunkId);
+      if (chunk?.embedding && queryEmbedding) {
         const sim = this.cosineSimilarity(queryEmbedding, chunk.embedding);
         vectorScores.push({ chunkId, score: sim });
       }
@@ -246,12 +321,21 @@ export class HybridRAGEngine {
       }));
   }
 
-  public listDocuments(): { id: string; title: string; chunksCount: number; totalTokens: number }[] {
-    const docMap = new Map<string, { id: string; title: string; chunksCount: number; totalTokens: number }>();
+  /**
+   * Backward-compatible query
+   */
+  public query(queryText: string, topK: number = 5, queryEmbedding?: number[]): RetrievalResult[] {
+    return this.queryWithScope(queryText, [], topK, undefined, queryEmbedding);
+  }
+
+  public listDocuments(): { id: string; title: string; spaceId?: string; ownerGroupId?: string; chunksCount: number; totalTokens: number }[] {
+    const docMap = new Map<string, { id: string; title: string; spaceId?: string; ownerGroupId?: string; chunksCount: number; totalTokens: number }>();
     for (const chunk of this.chunks.values()) {
       const existing = docMap.get(chunk.documentId) || {
         id: chunk.documentId,
         title: chunk.documentTitle,
+        spaceId: chunk.spaceId,
+        ownerGroupId: chunk.ownerGroupId,
         chunksCount: 0,
         totalTokens: 0
       };
