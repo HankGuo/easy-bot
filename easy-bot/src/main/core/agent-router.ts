@@ -184,6 +184,8 @@ Always prefer calling tools when user asks to create files, execute scripts, or 
               score: h.score,
               snippet: h.chunk.content.slice(0, 150)
             })), null, 2);
+          } else if (this.mcp.hasTool(tc.name)) {
+            toolOutput = await this.mcp.callTool(tc.name, tc.args);
           } else {
             toolOutput = `Tool ${tc.name} executed successfully.`;
           }
