@@ -37,7 +37,7 @@ export interface TelemetryRecord {
 
 /**
  * Universal Custom Model Client
- * Connects to ANY custom OpenAI-compatible endpoint (SenseNova, OpenAI, Ollama, vLLM, corporate gateways)
+ * Connects to ANY custom OpenAI-compatible endpoint (Local vLLM, Ollama, LM Studio, Enterprise Gateway, or Cloud Providers)
  * or Anthropic endpoints, with full streaming & native tool calling.
  */
 export class ModelClient {
@@ -46,10 +46,10 @@ export class ModelClient {
 
   constructor(initialConfig?: Partial<ModelConfig>) {
     this.config = {
-      provider: 'openai-compatible',
-      baseUrl: process.env.OPENAI_BASE_URL || 'https://token.sensenova.cn/v1',
-      apiKey: process.env.OPENAI_API_KEY || 'sk-3UHPzn5qZBVktG9EZwE7AYxoXSxxxUTS',
-      model: process.env.OPENAI_MODEL || 'sensenova-6.8-flash-lite',
+      provider: (process.env.OPENAI_PROVIDER as any) || 'openai-compatible',
+      baseUrl: process.env.OPENAI_BASE_URL || 'http://localhost:11434/v1',
+      apiKey: process.env.OPENAI_API_KEY || '',
+      model: process.env.OPENAI_MODEL || 'default-chat-model',
       temperature: 0.7,
       maxTokens: 4096,
       ...initialConfig

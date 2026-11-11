@@ -82,6 +82,7 @@ export class IMEngine {
 
   private initDefaultData() {
     // 1. Initial Industry & Enterprise Specialist Roster (6 大实用工业与企业专家)
+    const activeModelName = this.modelClient?.getConfig()?.model || process.env.OPENAI_MODEL || 'default-chat-model';
     const defaultExperts: Expert[] = [
       {
         id: 'exp-equip',
@@ -91,7 +92,7 @@ export class IMEngine {
         description: '精通数控机床、自动化产线、注塑冲压与工业电气维保；快速解读设备报错代码 (E-xx) 并提供安全排错步骤。',
         systemPrompt: '你是资深工业设备运维专家马工。熟悉机械电气结构、PLC报警代码与设备日常点检维保。回答严谨条理，优先给出停机排查逻辑、安全断电规程与应急处置指南。',
         skills: ['equipment-diagnostics', 'fault-code-lookup', 'safety-reset'],
-        model: 'sensenova-6.8-flash-lite',
+        model: activeModelName,
         status: 'online',
         color: '#1677ff',
         tags: ['设备排错', '故障代码', '维保SOP', '电气安全']
@@ -104,7 +105,7 @@ export class IMEngine {
         description: '熟悉作业指导书 (SOP)、公差配合、制程检验标准 (IPQC/FQC) 与不良品缺陷成因排查。',
         systemPrompt: '你是资深生产工艺与质检主管刘主管。熟悉加工工艺规程、尺寸公差与质检检验标准。擅长分析产品缺陷（起泡、尺寸偏差、划痕、缩水）原因，提供纠偏与工艺参数优化建议。',
         skills: ['process-sop-verify', 'tolerance-check', 'defect-root-cause'],
-        model: 'sensenova-6.8-flash-lite',
+        model: activeModelName,
         status: 'online',
         color: '#52c41a',
         tags: ['工艺指导书', '质检标准', '缺陷排查', '制程把控']
@@ -117,7 +118,7 @@ export class IMEngine {
         description: '擅长多层级物料清单 (BOM) 核对、工艺定额损耗计算、非标定制件技术参数比对与快速成本预估。',
         systemPrompt: '你是物料与成本核算专家王科长。熟悉原材料规格、BOM结构与生产定额损耗。擅长比对非标订单与物料参数，提供准确的损耗估算与报价辅助。',
         skills: ['bom-diff', 'material-loss-calc', 'cost-estimation'],
-        model: 'sensenova-6.8-flash-lite',
+        model: activeModelName,
         status: 'online',
         color: '#faad14',
         tags: ['BOM比对', '物料损耗', '定额核算', '成本预估']
@@ -130,7 +131,7 @@ export class IMEngine {
         description: '专注于安全生产操作规程、危险作业审批、消防应急自救、劳动防护标准与环保巡检合规。',
         systemPrompt: '你是企业安全与环保专员赵安全。时刻强调“安全第一、预防为主”，严格遵守特种作业、消防通道、劳保穿戴与环保台账标准，严厉杜绝违章冒险作业。',
         skills: ['ehs-audit', 'fire-safety', 'hazard-identification'],
-        model: 'sensenova-6.8-flash-lite',
+        model: activeModelName,
         status: 'online',
         color: '#ff4d4f',
         tags: ['安全生产', '消防应急', 'EHS合规', '隐患排查']
@@ -143,7 +144,7 @@ export class IMEngine {
         description: '熟悉企业规章制度、考勤排班、请假报销、宿舍用餐与新员工入职安全培训制度。',
         systemPrompt: '你是综合行政与制度专员陈专员。熟悉企业内部制度、请休假规程、差旅报销与行政审批，解答规范亲和，帮助员工快速搞清流程规矩。',
         skills: ['policy-query', 'leave-expense-guide', 'employee-handbook'],
-        model: 'sensenova-6.8-flash-lite',
+        model: activeModelName,
         status: 'online',
         color: '#722ed1',
         tags: ['规章制度', '考勤休假', '报销流程', '行政支持']
@@ -156,7 +157,7 @@ export class IMEngine {
         description: '负责厂区网络与打印机调试、系统账号与软件排障、数据备份与共享文件夹权限管理。',
         systemPrompt: '你是企业IT运维专员周工。快速排查局域网连接、网络共享文件夹、打印机脱机与账号权限问题，提供清晰的 step-by-step 排错步骤。',
         skills: ['network-diagnostics', 'printer-troubleshoot', 'backup-verify'],
-        model: 'sensenova-6.8-flash-lite',
+        model: activeModelName,
         status: 'online',
         color: '#13c2c2',
         tags: ['网络配置', '共享文件夹', '打印机排障', '系统支持']

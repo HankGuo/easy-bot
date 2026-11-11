@@ -5,6 +5,22 @@ async function runEndToEndDeliveryVerification() {
 
   const BASE_URL = 'http://127.0.0.1:4100';
 
+  // 0. 动态配置测试期大模型端点 (使用用户的 SenseNova 凭据直连测试)
+  console.log('▶ [步骤 0] 配置测试运行期大模型端点 (SenseNova 直连测试)...');
+  const testConfigRes = await fetch(`${BASE_URL}/api/model/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      provider: 'openai-compatible',
+      baseUrl: process.env.TEST_AI_BASE_URL || 'https://token.sensenova.cn/v1',
+      apiKey: process.env.TEST_AI_API_KEY || 'sk-3UHPzn5qZBVktG9EZwE7AYxoXSxxxUTS',
+      model: process.env.TEST_AI_MODEL || 'sensenova-6.8-flash-lite',
+      temperature: 0.7
+    })
+  });
+  const testConfig = await testConfigRes.json();
+  console.log(`✔ 运行期模型接入点配置完成: ${testConfig.config?.baseUrl} | 模型: ${testConfig.config?.model} | Key掩码: ${testConfig.config?.apiKeyMasked}\n`);
+
   // 1. 验证系统健康与底层 DeepSeek Harness 运行时
   console.log('▶ [步骤 1] 校验核心服务状态与 DeepSeek Harness 底座...');
   const healthRes = await fetch(`${BASE_URL}/api/health`);

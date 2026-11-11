@@ -3,7 +3,7 @@ import {
   Bot, Plus, Shield, BookOpen, Cpu, Settings, Terminal, MessageSquare, 
   GitFork, Code, Users, Sparkles, ChevronRight, CheckCircle2, RefreshCw,
   Activity, Eye, Layers, ShieldCheck, Wifi, Sliders, Play, ExternalLink,
-  Share2, Hash, AtSign
+  Share2, Hash, AtSign, PanelLeftClose, PanelLeft
 } from 'lucide-react';
 import { AgentSession, SandboxAuditLog, MCPServer } from './types';
 import { ChatCanvas } from './components/ChatCanvas';
@@ -17,7 +17,6 @@ import { SkillsMarket } from './components/SkillsMarket';
 import { ModelSettingsModal } from './components/ModelSettingsModal';
 import { TerminalConsole } from './components/TerminalConsole';
 import { TokenMonitor } from './components/TokenMonitor';
-import { ScreenPerceptionViewer } from './components/ScreenPerceptionViewer';
 import { IMWorkspace } from './components/IMWorkspace';
 import { ConnectorStudio } from './components/ConnectorStudio';
 import { ExpertStudio } from './components/ExpertStudio';
@@ -26,7 +25,7 @@ export function App() {
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<
-    'im' | 'chat' | 'experts' | 'connectors' | 'workflow' | 'vibecoding' | 'group' | 'terminal' | 'token_monitor' | 'screen' | 'sandbox' | 'rag' | 'skills' | 'mcp'
+    'im' | 'chat' | 'experts' | 'connectors' | 'workflow' | 'vibecoding' | 'group' | 'terminal' | 'token_monitor' | 'sandbox' | 'rag' | 'skills' | 'mcp'
   >('im'); // Default directly to IM Collaboration Workspace!
 
   const [auditLogs, setAuditLogs] = useState<SandboxAuditLog[]>([]);
@@ -37,7 +36,8 @@ export function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
-  const [activeModel, setActiveModel] = useState<string>('sensenova-6.8-flash-lite');
+  const [activeModel, setActiveModel] = useState<string>('OpenAI-Compatible');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -375,23 +375,30 @@ export function App() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#f8fafc] text-slate-800 antialiased font-sans select-none">
-      {/* Left Sidebar / Industrial Dock - Ant Design Pro Style */}
-      <div className="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0 shadow-2xs">
-        {/* Brand App Header - Clean Ant Design Pro Style */}
-        <div className="h-14 px-4 flex items-center justify-between border-b border-slate-200 bg-white">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-sm">
+      {/* Left Sidebar / Industrial Dock - Sleek Codex & WorkBuddy Style */}
+      <div className={`${isSidebarCollapsed ? 'w-16' : 'w-64'} bg-white border-r border-slate-200 flex flex-col shrink-0 shadow-2xs transition-all duration-200 ease-in-out`}>
+        {/* Brand App Header */}
+        <div className="h-14 px-3.5 flex items-center justify-between border-b border-slate-200 bg-white">
+          <div className="flex items-center gap-2.5 truncate">
+            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-sm shrink-0">
               <Bot className="w-5 h-5" />
             </div>
-            <div>
-              <div className="font-bold text-sm text-slate-900 tracking-tight">EasyBot</div>
-              <div className="text-[10px] text-slate-400 font-mono">Enterprise Agent OS</div>
-            </div>
+            {!isSidebarCollapsed && (
+              <div className="truncate">
+                <div className="font-bold text-sm text-slate-900 tracking-tight">EasyBot</div>
+                <div className="text-[10px] text-slate-400 font-mono">Enterprise Agent OS</div>
+              </div>
+            )}
           </div>
 
-          <div className="flex items-center gap-1.5" title={isConnected ? '网关连接正常' : '网关连接中断'}>
-            <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
-            <span className="text-[10px] text-slate-400 font-mono">{isConnected ? '在线' : '离线'}</span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
+              title={isSidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
+            >
+              {isSidebarCollapsed ? <PanelLeft className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+            </button>
           </div>
         </div>
 
@@ -399,13 +406,16 @@ export function App() {
         <div className="flex-1 overflow-y-auto p-2 space-y-4 text-xs">
           {/* Group 1: 智能体协同大厅 */}
           <div>
-            <div className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              智能体协同 (Agent Workspace)
-            </div>
+            {!isSidebarCollapsed && (
+              <div className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                智能体协同 (Agent Workspace)
+              </div>
+            )}
             <div className="space-y-0.5 mt-1">
               <button
                 onClick={() => setActiveTab('im')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md font-medium transition ${
+                title="专家协同研讨大厅"
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
                   activeTab === 'im'
                     ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -413,14 +423,15 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <MessageSquare className="w-4 h-4 text-blue-600" />
-                  <span>专家协同研讨大厅</span>
+                  {!isSidebarCollapsed && <span>专家协同研讨大厅</span>}
                 </div>
-                <span className="text-[10px] bg-blue-100 text-blue-800 font-mono px-1 rounded">频道</span>
+                {!isSidebarCollapsed && <span className="text-[10px] bg-blue-100 text-blue-800 font-mono px-1 rounded">频道</span>}
               </button>
 
               <button
                 onClick={() => setActiveTab('experts')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md font-medium transition ${
+                title="专家团队智囊团"
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
                   activeTab === 'experts'
                     ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -428,14 +439,15 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Users className="w-4 h-4 text-purple-600" />
-                  <span>专家团队智囊团</span>
+                  {!isSidebarCollapsed && <span>专家团队智囊团</span>}
                 </div>
-                <span className="text-[10px] text-slate-400 font-mono">6 位专家</span>
+                {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">6 位专家</span>}
               </button>
 
               <button
                 onClick={() => setActiveTab('connectors')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md font-medium transition ${
+                title="企业协同消息通道"
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
                   activeTab === 'connectors'
                     ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -443,22 +455,25 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Share2 className="w-4 h-4 text-emerald-600" />
-                  <span>企业协同消息通道</span>
+                  {!isSidebarCollapsed && <span>企业协同消息通道</span>}
                 </div>
-                <span className="text-[10px] text-emerald-600 font-mono font-medium">企微/钉/飞</span>
+                {!isSidebarCollapsed && <span className="text-[10px] text-emerald-600 font-mono font-medium">企微/钉/飞</span>}
               </button>
             </div>
           </div>
 
           {/* Group 2: 研发与执行工作台 */}
           <div>
-            <div className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              研发与执行 (Dev & Sandbox)
-            </div>
+            {!isSidebarCollapsed && (
+              <div className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                研发与执行 (Dev & Sandbox)
+              </div>
+            )}
             <div className="space-y-0.5 mt-1">
               <button
                 onClick={() => setActiveTab('chat')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md font-medium transition ${
+                title="智能助理对话"
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
                   activeTab === 'chat'
                     ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -466,14 +481,15 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Bot className="w-4 h-4 text-blue-600" />
-                  <span>智能助理对话</span>
+                  {!isSidebarCollapsed && <span>智能助理对话</span>}
                 </div>
-                {activeSession && <span className="text-[10px] text-slate-400 font-mono">#{activeSession.messages.length}</span>}
+                {!isSidebarCollapsed && activeSession && <span className="text-[10px] text-slate-400 font-mono">#{activeSession.messages.length}</span>}
               </button>
 
               <button
                 onClick={() => setActiveTab('vibecoding')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md font-medium transition ${
+                title="应用即时生成 (Vibe)"
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
                   activeTab === 'vibecoding'
                     ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -481,14 +497,15 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Code className="w-4 h-4 text-emerald-600" />
-                  <span>应用即时生成 (Vibe)</span>
+                  {!isSidebarCollapsed && <span>应用即时生成 (Vibe)</span>}
                 </div>
-                <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1 rounded font-mono">即写即跑</span>
+                {!isSidebarCollapsed && <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1 rounded font-mono">即写即跑</span>}
               </button>
 
               <button
                 onClick={() => setActiveTab('terminal')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md font-medium transition ${
+                title="受限安全代码沙箱"
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
                   activeTab === 'terminal'
                     ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -496,22 +513,25 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Terminal className="w-4 h-4 text-amber-600" />
-                  <span>受限安全代码沙箱</span>
+                  {!isSidebarCollapsed && <span>受限安全代码沙箱</span>}
                 </div>
-                <span className="text-[10px] text-slate-400 font-mono">Shell/Code</span>
+                {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">Shell/Code</span>}
               </button>
             </div>
           </div>
 
           {/* Group 3: 知识检索与流程编排 */}
           <div>
-            <div className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              知识与流程 (Knowledge & Pipeline)
-            </div>
+            {!isSidebarCollapsed && (
+              <div className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                知识与流程 (Knowledge & Pipeline)
+              </div>
+            )}
             <div className="space-y-0.5 mt-1">
               <button
                 onClick={() => setActiveTab('rag')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md font-medium transition ${
+                title="企业级混合知识库"
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
                   activeTab === 'rag'
                     ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -519,14 +539,15 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <BookOpen className="w-4 h-4 text-purple-600" />
-                  <span>企业级混合知识库</span>
+                  {!isSidebarCollapsed && <span>企业级混合知识库</span>}
                 </div>
-                <span className="text-[10px] text-slate-400 font-mono">双路精准</span>
+                {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">双路精准</span>}
               </button>
 
               <button
                 onClick={() => setActiveTab('workflow')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md font-medium transition ${
+                title="自动化任务流水线"
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
                   activeTab === 'workflow'
                     ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -534,14 +555,15 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <GitFork className="w-4 h-4 text-purple-600" />
-                  <span>自动化任务流水线</span>
+                  {!isSidebarCollapsed && <span>自动化任务流水线</span>}
                 </div>
-                <span className="text-[10px] text-slate-400 font-mono">DAG流程</span>
+                {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">DAG流程</span>}
               </button>
 
               <button
                 onClick={() => setActiveTab('group')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md font-medium transition ${
+                title="多专家集群协同评审"
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
                   activeTab === 'group'
                     ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -549,22 +571,25 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Users className="w-4 h-4 text-indigo-600" />
-                  <span>多专家集群协同评审</span>
+                  {!isSidebarCollapsed && <span>多专家集群协同评审</span>}
                 </div>
-                <span className="text-[10px] text-slate-400 font-mono">共识机制</span>
+                {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">共识机制</span>}
               </button>
             </div>
           </div>
 
           {/* Group 4: 治理与系统监控 */}
           <div>
-            <div className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              系统监控与安全 (Governance & Audit)
-            </div>
+            {!isSidebarCollapsed && (
+              <div className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                系统监控与安全 (Governance & Audit)
+              </div>
+            )}
             <div className="space-y-0.5 mt-1">
               <button
                 onClick={() => setActiveTab('token_monitor')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md font-medium transition ${
+                title="算力与 Token 监控"
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
                   activeTab === 'token_monitor'
                     ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -572,14 +597,15 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Activity className="w-4 h-4 text-blue-600" />
-                  <span>算力与 Token 监控</span>
+                  {!isSidebarCollapsed && <span>算力与 Token 监控</span>}
                 </div>
-                <span className="text-[10px] text-emerald-600 font-mono font-medium">实时</span>
+                {!isSidebarCollapsed && <span className="text-[10px] text-emerald-600 font-mono font-medium">真实遥测</span>}
               </button>
 
               <button
                 onClick={() => setActiveTab('skills')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md font-medium transition ${
+                title="技能扩展生态市场"
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
                   activeTab === 'skills'
                     ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -587,14 +613,15 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Sparkles className="w-4 h-4 text-amber-500" />
-                  <span>技能扩展生态市场</span>
+                  {!isSidebarCollapsed && <span>技能扩展生态市场</span>}
                 </div>
-                <span className="text-[10px] text-slate-400 font-mono">{skills.length}</span>
+                {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">{skills.length}</span>}
               </button>
 
               <button
                 onClick={() => setActiveTab('mcp')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md font-medium transition ${
+                title="MCP 工具扩展中心"
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
                   activeTab === 'mcp'
                     ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -602,14 +629,15 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Cpu className="w-4 h-4 text-blue-600" />
-                  <span>MCP 工具扩展中心</span>
+                  {!isSidebarCollapsed && <span>MCP 工具扩展中心</span>}
                 </div>
-                <span className="text-[10px] text-slate-400 font-mono">{tools.length}</span>
+                {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">{tools.length}</span>}
               </button>
 
               <button
                 onClick={() => setActiveTab('sandbox')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md font-medium transition ${
+                title="沙箱安全与审计屏障"
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-2.5' : 'justify-between px-3 py-2'} rounded-md font-medium transition ${
                   activeTab === 'sandbox'
                     ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -617,9 +645,9 @@ export function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  <span>沙箱安全与审计屏障</span>
+                  {!isSidebarCollapsed && <span>沙箱安全与审计屏障</span>}
                 </div>
-                <span className="text-[10px] text-slate-400 font-mono">#{auditLogs.length}</span>
+                {!isSidebarCollapsed && <span className="text-[10px] text-slate-400 font-mono">#{auditLogs.length}</span>}
               </button>
             </div>
           </div>
@@ -627,35 +655,50 @@ export function App() {
 
         {/* Sidebar Footer with Model Pill & Settings */}
         <div className="p-3 border-t border-slate-200 bg-slate-50/50 space-y-2">
-          {/* Active Engine & Model Indicator */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between px-2 py-1 bg-emerald-50 border border-emerald-200 rounded text-[10px] text-emerald-800">
-              <span className="font-semibold flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
-                执行引擎: DeepSeek Harness
-              </span>
-              <span className="font-mono text-[9px] bg-emerald-100 text-emerald-700 px-1 rounded">MIT</span>
-            </div>
-            <div className="flex items-center justify-between px-2 py-1.5 bg-white border border-slate-200 rounded-md text-[11px]">
-              <div className="flex items-center gap-1.5 truncate">
-                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                <span className="font-semibold text-slate-700 truncate">{activeModel}</span>
+          {!isSidebarCollapsed ? (
+            <>
+              {/* Active Engine & Model Indicator */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between px-2 py-1 bg-emerald-50 border border-emerald-200 rounded text-[10px] text-emerald-800">
+                  <span className="font-semibold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+                    执行引擎: DeepSeek Harness
+                  </span>
+                  <span className="font-mono text-[9px] bg-emerald-100 text-emerald-700 px-1 rounded">MIT</span>
+                </div>
+                <div className="flex items-center justify-between px-2 py-1.5 bg-white border border-slate-200 rounded-md text-[11px]">
+                  <div className="flex items-center gap-1.5 truncate">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span className="font-semibold text-slate-700 truncate">{activeModel}</span>
+                  </div>
+                  <span className="text-[9px] text-blue-600 bg-blue-50 border border-blue-200 px-1 rounded font-mono shrink-0">BYOK / OpenAI</span>
+                </div>
               </div>
-              <span className="text-[9px] text-slate-400 font-mono shrink-0">SenseNova</span>
-            </div>
-          </div>
 
-          {/* Model Settings Button */}
-          <button
-            onClick={() => setIsSettingsOpen(true)}
-            className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-slate-600 hover:text-slate-900 hover:bg-white border border-transparent hover:border-slate-200 rounded-md transition"
-          >
-            <div className="flex items-center gap-2">
-              <Settings className="w-4 h-4 text-slate-500" />
-              <span>端点配置 (Settings)</span>
+              {/* Model Settings Button */}
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-slate-600 hover:text-slate-900 hover:bg-white border border-transparent hover:border-slate-200 rounded-md transition"
+              >
+                <div className="flex items-center gap-2">
+                  <Settings className="w-4 h-4 text-slate-500" />
+                  <span>端点配置 (Settings)</span>
+                </div>
+                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+              </button>
+            </>
+          ) : (
+            <div className="flex flex-col items-center gap-2 py-1">
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                className="p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-white border border-transparent hover:border-slate-200 transition"
+                title="自定义大模型端点配置"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+              <span className="w-2 h-2 rounded-full bg-emerald-500" title={`当前模型: ${activeModel}`} />
             </div>
-            <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-          </button>
+          )}
         </div>
       </div>
 
