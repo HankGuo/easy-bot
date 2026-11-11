@@ -64,13 +64,10 @@ $bmp.Dispose()
 `;
         await execFileAsync('powershell', ['-NoProfile', '-Command', psScript]);
       } else {
-        // Mock fallback for unsupported platforms
-        fs.writeFileSync(fullPath, Buffer.from('mock_png_data'));
+        throw new Error(`屏幕感知服务不支持当前操作系统平台: ${process.platform}`);
       }
-    } catch {
-      // Create a fallback valid 1x1 mock png buffer if OS permissions deny
-      const mockPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
-      fs.writeFileSync(fullPath, mockPng);
+    } catch (err: any) {
+      throw new Error(`屏幕感知抓取失败: ${err.message}`);
     }
 
     // Read base64 thumbnail

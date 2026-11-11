@@ -107,20 +107,32 @@ export const WorkflowStudio: React.FC<Props> = ({ onRunWorkflow }) => {
           </div>
 
           <div className="bg-white rounded-lg border border-slate-200 p-4 shadow-2xs divide-y divide-slate-100">
-            {runResult.steps.map((st: any, idx: number) => (
-              <div key={idx} className="py-3 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-6 h-6 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center text-xs font-bold font-mono">
-                    {idx + 1}
+            {(runResult.logs || runResult.steps || []).map((st: any, idx: number) => (
+              <div key={idx} className="py-3 flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-6 h-6 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center text-xs font-bold font-mono">
+                      {idx + 1}
+                    </div>
+                    <div>
+                      <span className="font-semibold text-slate-800">{st.nodeName || st.nodeId}</span>
+                      <span className={`text-[11px] ml-2 font-mono px-1.5 py-0.5 rounded ${st.status === 'SUCCESS' ? 'text-emerald-700 bg-emerald-50' : 'text-rose-700 bg-rose-50'}`}>{st.status}</span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="font-semibold text-slate-800">{st.nodeId}</span>
-                    <span className="text-[11px] text-slate-400 ml-2 font-mono">{st.status}</span>
+                  <div className="text-[11px] font-mono text-slate-500 bg-slate-50 px-2 py-1 rounded border border-slate-200">
+                    {st.durationMs}ms
                   </div>
                 </div>
-                <div className="text-[11px] font-mono text-slate-500 bg-slate-50 px-2 py-1 rounded border border-slate-200">
-                  {st.durationMs}ms
-                </div>
+                {st.output && (
+                  <div className="ml-9 text-[11px] font-mono text-slate-600 bg-slate-50 p-2 rounded border border-slate-100 break-words whitespace-pre-wrap">
+                    {typeof st.output === 'string' ? st.output : JSON.stringify(st.output, null, 2)}
+                  </div>
+                )}
+                {st.error && (
+                  <div className="ml-9 text-[11px] font-mono text-rose-600 bg-rose-50 p-2 rounded border border-rose-100">
+                    {st.error}
+                  </div>
+                )}
               </div>
             ))}
           </div>

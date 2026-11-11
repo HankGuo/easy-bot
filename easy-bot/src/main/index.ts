@@ -56,6 +56,29 @@ const router = new AgentRouter(sandbox, rag, mcp);
 const modelClient = router.getModelClient();
 const store = new SessionStore(DATA_DIR);
 modelClient.setStore(store);
+
+// Persistent Model Config: load from disk if present, or initialize with SenseNova
+const MODEL_CONFIG_FILE = path.join(DATA_DIR, 'model_config.json');
+if (fs.existsSync(MODEL_CONFIG_FILE)) {
+  try {
+    const savedConfig = JSON.parse(fs.readFileSync(MODEL_CONFIG_FILE, 'utf-8'));
+    modelClient.updateConfig(savedConfig);
+  } catch (err: any) {
+    console.warn('Failed to load saved model config:', err.message);
+  }
+} else {
+  const initialSenseNova = {
+    provider: 'openai-compatible',
+    baseUrl: process.env.OPENAI_BASE_URL || 'https://token.sensenova.cn/v1',
+    apiKey: process.env.OPENAI_API_KEY || 'sk-3UHPzn5qZBVktG9EZwE7AYxoXSxxxUTS',
+    model: process.env.OPENAI_MODEL || 'sensenova-6.8-flash-lite',
+    temperature: 0.7,
+    maxTokens: 4096
+  };
+  modelClient.updateConfig(initialSenseNova as any);
+  fs.writeFileSync(MODEL_CONFIG_FILE, JSON.stringify(initialSenseNova, null, 2), 'utf-8');
+}
+
 const workflow = new WorkflowEngine(sandbox, rag, mcp, modelClient);
 const vibecoding = new VibeCodingEngine(sandbox, modelClient, PORT);
 const screen = new ScreenPerceptionEngine(sandbox);
@@ -521,6 +544,7 @@ const server = http.createServer((req, res) => {
       try {
         const patch = JSON.parse(body);
         router.getModelClient().updateConfig(patch);
+        fs.writeFileSync(MODEL_CONFIG_FILE, JSON.stringify(router.getModelClient().getConfig(), null, 2), 'utf-8');
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, config: router.getModelClient().getMaskedConfig() }));
       } catch (err: any) {
@@ -818,6 +842,7 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
 
         case 'set_model_config': {
           router.getModelClient().updateConfig(payload);
+          fs.writeFileSync(MODEL_CONFIG_FILE, JSON.stringify(router.getModelClient().getConfig(), null, 2), 'utf-8');
           ws.send(JSON.stringify({ type: 'model_config_updated', id, payload: router.getModelClient().getMaskedConfig() }));
           break;
         }

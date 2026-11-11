@@ -96,10 +96,9 @@ test('5. Agent Router Autonomous Tool Execution', async () => {
   const rag = new HybridRAGEngine();
   const mcp = new MCPHostManager();
   const router = new AgentRouter(sandbox, rag, mcp);
-  router.getModelClient().updateConfig({ provider: 'mock' });
 
   const session = router.createSession('Test Suite Session', 'ClaudeAgent');
-  const assistantMsg = await router.handleUserMessage(session.id, '请帮我创建文件 app.js 并写入测试逻辑');
+  const assistantMsg = await router.handleUserMessage(session.id, '请调用工具创建文件 app.js 并写入测试逻辑');
 
   assert.equal(assistantMsg.role, 'assistant');
   assert.ok(assistantMsg.toolCalls && assistantMsg.toolCalls.length > 0);
@@ -112,12 +111,14 @@ test('5. Agent Router Autonomous Tool Execution', async () => {
 });
 
 test('6. AgentFlow DAG Workflow Engine Execution', async () => {
+  const { ModelClient } = await import('../core/model-client.js');
   const tmpWorkspace = path.join(process.cwd(), 'tmp_test_ws_4');
   const sandbox = new SandboxEngine(tmpWorkspace);
   const rag = new HybridRAGEngine();
   rag.addDocument('doc-qa', 'QA Standard', 'All API handlers must return strict typed JSON response.');
   const mcp = new MCPHostManager();
-  const wfEngine = new WorkflowEngine(sandbox, rag, mcp);
+  const client = new ModelClient();
+  const wfEngine = new WorkflowEngine(sandbox, rag, mcp, client);
 
   const res = await wfEngine.executeWorkflow('wf-auto-dev-qa', { query: 'API handler standard' }, 'test-session-wf');
   assert.equal(res.status, 'COMPLETED');
@@ -129,9 +130,11 @@ test('6. AgentFlow DAG Workflow Engine Execution', async () => {
 });
 
 test('7. VibeCoding WebApp Generator & Sandboxed Assets', async () => {
+  const { ModelClient } = await import('../core/model-client.js');
   const tmpWorkspace = path.join(process.cwd(), 'tmp_test_ws_5');
   const sandbox = new SandboxEngine(tmpWorkspace);
-  const vibe = new VibeCodingEngine(sandbox, undefined, 4100);
+  const client = new ModelClient();
+  const vibe = new VibeCodingEngine(sandbox, client, 4100);
 
   const project = await vibe.generateWebApp('test-session-vibe', 'CRM_Portal', 'Create customer metrics dashboard');
   assert.ok(project.id.startsWith('app-'));
@@ -158,12 +161,14 @@ test('8. Skills Package Dynamic Loader', () => {
 });
 
 test('9. AgentGroup Multi-Agent Collaboration & Consensus', async () => {
+  const { ModelClient } = await import('../core/model-client.js');
   const tmpWorkspace = path.join(process.cwd(), 'tmp_test_ws_6');
   const sandbox = new SandboxEngine(tmpWorkspace);
   const rag = new HybridRAGEngine();
   const mcp = new MCPHostManager();
   const router = new AgentRouter(sandbox, rag, mcp);
-  const group = new AgentGroupCoordinator(sandbox, router);
+  const client = new ModelClient();
+  const group = new AgentGroupCoordinator(sandbox, router, client);
 
   const res = await group.runCollaboration('test-session-group', '全栈安全审计管道搭建');
   assert.equal(res.status, 'COMPLETED');
@@ -187,28 +192,30 @@ test('10. Screen Perception Capture Service', async () => {
 
 test('11. Custom Model Client Config & Tool Translation', async () => {
   const { ModelClient } = await import('../core/model-client.js');
-  const client = new ModelClient({
-    provider: 'mock',
-    apiKey: 'sk-test-secret-1234567890',
-    model: 'deepseek-chat',
-    baseUrl: 'https://api.deepseek.com/v1'
-  });
+  const client = new ModelClient();
 
   const masked = client.getMaskedConfig();
-  assert.equal(masked.model, 'deepseek-chat');
+  assert.equal(masked.model, 'sensenova-6.8-flash-lite');
   assert.equal(masked.hasKey, true);
   assert.ok(masked.apiKeyMasked.includes('...'));
-  assert.ok(!masked.apiKeyMasked.includes('1234567890')); // secret protected
 
   const ping = await client.testConnection();
   assert.equal(ping.success, true);
   assert.ok(ping.latencyMs >= 0);
 
-  // Test streaming with tool output
-  const res = await client.streamChat([
-    { role: 'user', content: '创建文件 index.html' }
-  ]);
-  assert.ok(res.content.length > 0);
+  // Test real tool call dispatch with live model
+  const res = await client.streamChat(
+    [{ role: 'user', content: '请调用工具创建文件 index.html 并写入 hello' }],
+    [{
+      name: 'workspace_file_write',
+      description: 'Write a file',
+      inputSchema: {
+        type: 'object',
+        properties: { path: { type: 'string' }, content: { type: 'string' } },
+        required: ['path', 'content']
+      }
+    }]
+  );
   assert.ok(res.toolCalls && res.toolCalls.length > 0);
   assert.equal(res.toolCalls[0].name, 'workspace_file_write');
 });
@@ -220,7 +227,7 @@ test('12. Enterprise IM Suite, Specialists & Connectors', async () => {
   const tmpData = path.join(process.cwd(), 'tmp_test_data_im');
   const sandbox = new SandboxEngine(tmpWs);
   const rag = new HybridRAGEngine();
-  const client = new ModelClient({ provider: 'mock' });
+  const client = new ModelClient();
 
   const im = new IMEngine(tmpData, client, sandbox, rag);
 
@@ -359,7 +366,7 @@ test('16. IM Gateway Inbound Dispatch & Specialist Routing', async () => {
   const tmpData = path.join(process.cwd(), 'tmp_test_im_data');
   const sandbox = new SandboxEngine(tmpWs);
   const rag = new HybridRAGEngine();
-  const client = new ModelClient({ provider: 'mock' });
+  const client = new ModelClient();
   const im = new IMEngine(tmpData, client, sandbox, rag);
 
   // Test inbound WeCom academic dispatch

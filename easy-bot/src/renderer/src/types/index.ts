@@ -24,7 +24,7 @@ export interface ToolResultEvent {
 export interface AgentSession {
   id: string;
   title: string;
-  backend: 'ClaudeAgent' | 'OpenCodeACP' | 'OllamaLocal' | 'MockEngine';
+  backend: 'ClaudeAgent' | 'OpenCodeACP' | 'OllamaLocal';
   createdAt: string;
   workspacePath: string;
   messages: AgentMessage[];

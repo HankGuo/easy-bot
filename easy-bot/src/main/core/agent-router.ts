@@ -33,7 +33,7 @@ export interface ToolResultEvent {
 export interface AgentSession {
   id: string;
   title: string;
-  backend: 'DeepSeekHarness' | 'CustomEndpoint' | 'ClaudeAgent' | 'OpenCodeACP' | 'OllamaLocal' | 'MockEngine';
+  backend: 'DeepSeekHarness' | 'CustomEndpoint' | 'ClaudeAgent' | 'OpenCodeACP' | 'OllamaLocal';
   createdAt: string;
   workspacePath: string;
   messages: AgentMessage[];

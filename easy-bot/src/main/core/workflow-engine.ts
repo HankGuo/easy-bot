@@ -175,24 +175,19 @@ export class WorkflowEngine {
 
           case 'LLM_PROMPT': {
             const prompt = this.interpolate(cfg.promptTemplate || '', context);
-            if (this.modelClient && this.modelClient.getConfig().apiKey && this.modelClient.getConfig().provider !== 'mock') {
-              try {
-                nodeOutput = await this.modelClient.chat([
-                  {
-                    role: 'system',
-                    content: 'You are an autonomous workflow reasoning node. Execute the task concisely based on provided context and return structured conclusions.'
-                  },
-                  {
-                    role: 'user',
-                    content: prompt
-                  }
-                ]);
-              } catch (err: any) {
-                nodeOutput = `[Workflow LLM Node Error]: ${err.message}`;
-              }
-            } else {
-              nodeOutput = `[Workflow Local Engine]: Successfully analyzed context for prompt: "${prompt.slice(0, 80)}"`;
+            if (!this.modelClient || !this.modelClient.getConfig().apiKey) {
+              throw new Error('Workflow LLM 节点执行中断: 未配置大模型 API Key。系统已清空所有模拟返回（Zero-Mock 准则生效）。');
             }
+            nodeOutput = await this.modelClient.chat([
+              {
+                role: 'system',
+                content: 'You are an autonomous workflow reasoning node. Execute the task concisely based on provided context and return structured conclusions.'
+              },
+              {
+                role: 'user',
+                content: prompt
+              }
+            ]);
             if (cfg.outputKey) context[cfg.outputKey] = nodeOutput;
             break;
           }

@@ -1,5 +1,5 @@
 export interface ModelConfig {
-  provider: 'openai-compatible' | 'anthropic' | 'ollama' | 'mock';
+  provider: 'openai-compatible' | 'anthropic' | 'ollama';
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -56,11 +56,11 @@ export class ModelClient {
   constructor(initialConfig?: Partial<ModelConfig>) {
     this.config = {
       provider: (process.env.OPENAI_PROVIDER as any) || 'openai-compatible',
-      baseUrl: process.env.OPENAI_BASE_URL || 'http://localhost:11434/v1',
-      apiKey: process.env.OPENAI_API_KEY || '',
-      model: process.env.OPENAI_MODEL || 'default-chat-model',
+      baseUrl: process.env.OPENAI_BASE_URL || 'https://token.sensenova.cn/v1',
+      apiKey: process.env.OPENAI_API_KEY || 'sk-3UHPzn5qZBVktG9EZwE7AYxoXSxxxUTS',
+      model: process.env.OPENAI_MODEL || 'sensenova-6.8-flash-lite',
       temperature: 0.7,
-      maxTokens: 4096,
+      maxTokens: 8192,
       embeddingBaseUrl: process.env.OPENAI_EMBEDDING_BASE_URL,
       embeddingApiKey: process.env.OPENAI_EMBEDDING_API_KEY,
       embeddingModel: process.env.OPENAI_EMBEDDING_MODEL,
@@ -156,19 +156,11 @@ export class ModelClient {
    */
   public async testConnection(): Promise<{ success: boolean; latencyMs: number; responsePreview?: string; error?: string }> {
     const start = Date.now();
-    if (!this.config.apiKey && this.config.provider !== 'ollama' && this.config.provider !== 'mock') {
+    if (!this.config.apiKey && this.config.provider !== 'ollama') {
       return {
         success: false,
         latencyMs: 0,
-        error: '未配置 API Key（对于非 Ollama 本地模型，必须提供有效密钥）'
-      };
-    }
-
-    if (this.config.provider === 'mock') {
-      return {
-        success: true,
-        latencyMs: 12,
-        responsePreview: 'Mock 模拟引擎通信就绪，延迟 12ms。'
+        error: '未配置 API Key（对于云端大模型，必须提供有效密钥，已严格禁用离线 Mock 模拟）'
       };
     }
 
@@ -227,24 +219,9 @@ export class ModelClient {
     onToken?: (token: string) => void
   ): Promise<{ content: string; toolCalls?: { id: string; name: string; args: Record<string, any> }[] }> {
     const startTime = Date.now();
-    // 1. Fallback to Mock/Offline engine if provider is mock or no API Key provided
-    if (this.config.provider === 'mock' || (!this.config.apiKey && this.config.provider !== 'ollama')) {
-      const userPrompt = messages[messages.length - 1]?.content || '';
-      const res = await this.offlineSimulatedCompletion(userPrompt, onToken);
-      this.recordTelemetry({
-        id: `tel-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        timestamp: new Date().toLocaleTimeString(),
-        model: 'offline-local-sandbox',
-        promptTokens: Math.round(userPrompt.length / 2),
-        completionTokens: Math.round(res.content.length / 2),
-        totalTokens: Math.round((userPrompt.length + res.content.length) / 2),
-        latencyMs: Date.now() - startTime,
-        estimatedCost: 0,
-        task: userPrompt.slice(0, 30) || '离线沙箱执行',
-        status: 'simulated',
-        tokenSource: 'estimated_heuristic'
-      });
-      return res;
+    // Zero-Mock Guard: strictly require valid API Key
+    if (!this.config.apiKey && this.config.provider !== 'ollama') {
+      throw new Error('未配置大模型 API Key（Model API Key is not configured）。系统已彻底禁用离线模拟回包（Zero-Mock 准则生效），请在系统设置中配置有效的 BaseURL 与 API Key。');
     }
 
     // 2. Format OpenAI tools schema
@@ -450,52 +427,5 @@ export class ModelClient {
     } catch (err: any) {
       console.warn('[ModelClient] Failed to clear telemetry from SQLite:', err.message);
     }
-  }
-
-  private async offlineSimulatedCompletion(
-    prompt: string,
-    onToken?: (token: string) => void
-  ): Promise<{ content: string; toolCalls?: { id: string; name: string; args: Record<string, any> }[] }> {
-    const isFileWrite = prompt.includes('创建') || prompt.includes('写') || prompt.includes('create') || prompt.includes('write');
-    const isSearch = prompt.includes('查询') || prompt.includes('找') || prompt.includes('search') || prompt.includes('知识库');
-    const isExec = prompt.includes('运行') || prompt.includes('执行') || prompt.includes('run') || prompt.includes('test');
-
-    const toolCalls: { id: string; name: string; args: Record<string, any> }[] = [];
-
-    if (isFileWrite) {
-      const matchFile = prompt.match(/(?:文件|file)\s*([a-zA-Z0-9_\-\.\/]+)/i);
-      const filename = matchFile ? matchFile[1] : 'demo_output.js';
-      toolCalls.push({
-        id: 'call_' + Math.random().toString(36).slice(2, 9),
-        name: 'workspace_file_write',
-        args: { path: filename, content: `// Generated in EasyBot Sandbox\nconsole.log("Custom model execution verified.");\n` }
-      });
-    }
-
-    if (isSearch) {
-      toolCalls.push({
-        id: 'call_' + Math.random().toString(36).slice(2, 9),
-        name: 'hybrid_rag_query',
-        args: { query: prompt, topK: 3 }
-      });
-    }
-
-    if (isExec) {
-      toolCalls.push({
-        id: 'call_' + Math.random().toString(36).slice(2, 9),
-        name: 'workspace_shell_execute',
-        args: { command: 'node -e "console.log(process.version)"' }
-      });
-    }
-
-    const text = `[EasyBot 模拟引擎回包]：已解析您的指令「${prompt}」。\n系统检测到当前未配置云端商业 API Key，已自动路由至离线高保真沙箱模式进行工具调度测试。`;
-    for (const char of text) {
-      onToken?.(char);
-    }
-
-    return {
-      content: text,
-      toolCalls: toolCalls.length > 0 ? toolCalls : undefined
-    };
   }
 }

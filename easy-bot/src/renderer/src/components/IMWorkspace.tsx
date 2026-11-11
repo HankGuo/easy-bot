@@ -111,7 +111,7 @@ export function IMWorkspace({ onSendMessage, onTestConnector, onSwitchTab }: IMW
   useEffect(() => {
     if (!activeChannelId) return;
     const host = window.location.hostname || 'localhost';
-    fetch(`http://${host}:4100/api/im/channels/${activeChannelId}/messages`)
+    fetch(`http://${host}:4100/api/im/messages?channelId=${encodeURIComponent(activeChannelId)}`)
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
@@ -149,25 +149,22 @@ export function IMWorkspace({ onSendMessage, onTestConnector, onSwitchTab }: IMW
 
     try {
       const response = await onSendMessage(activeChannelId, currentText);
-      if (response && response.response) {
-        // Find matching expert or fallback
-        const repliedExpert = experts.find(e => response.expert?.includes(e.name)) || {
-          name: response.expert || '专家协作组',
-          avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=expert',
-          role: 'expert'
-        };
-
-        const replyMsg: IMMessage = {
-          id: 'resp_' + Date.now(),
-          channelId: activeChannelId,
-          senderId: 'exp_reply',
-          senderName: response.expert || repliedExpert.name,
-          senderRole: 'expert',
-          avatar: (repliedExpert as any).avatar || 'https://api.dicebear.com/7.x/bottts/svg?seed=expert',
-          content: response.response,
-          timestamp: new Date().toLocaleTimeString()
-        };
-        setMessages(prev => [...prev, replyMsg]);
+      if (response) {
+        if (response.expertMessage) {
+          setMessages(prev => [...prev, response.expertMessage]);
+        } else if (response.response) {
+          const replyMsg: IMMessage = {
+            id: 'resp_' + Date.now(),
+            channelId: activeChannelId,
+            senderId: 'exp_reply',
+            senderName: response.expert || '协作专家',
+            senderRole: 'expert',
+            avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=expert',
+            content: response.response,
+            timestamp: new Date().toLocaleTimeString()
+          };
+          setMessages(prev => [...prev, replyMsg]);
+        }
       }
     } catch (err: any) {
       setMessages(prev => [

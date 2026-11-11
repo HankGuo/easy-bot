@@ -60,64 +60,45 @@ export class AgentGroupCoordinator {
 
     const isLiveModel = Boolean(
       this.modelClient && 
-      this.modelClient.getConfig().apiKey && 
-      this.modelClient.getConfig().provider !== 'mock'
+      this.modelClient.getConfig().apiKey
     );
 
-    let supervisorText = '';
-    let architectText = '';
-    let coderText = '';
-    let reviewerText = '';
-    let deliverableData: any = {};
-
-    if (isLiveModel && this.modelClient) {
-      try {
-        // 1. Supervisor Real Decomposition
-        supervisorText = await this.modelClient.chat([
-          { role: 'system', content: '你是多智能体团队的项目主管 (Supervisor)。针对用户全局任务，进行条理清晰的目标拆解、关键里程碑设定与团队分工。以中文简洁回答，150字以内。' },
-          { role: 'user', content: `任务需求：「${taskPrompt}」` }
-        ]);
-
-        // 2. Architect Real Technical Spec
-        architectText = await this.modelClient.chat([
-          { role: 'system', content: '你是多智能体团队的系统架构师 (Architect)。依据主管拆解，拟定技术选型、数据流向与边界控制方案。以中文简洁回答，150字以内。' },
-          { role: 'user', content: `任务：${taskPrompt}\n主管拆解：${supervisorText}` }
-        ]);
-
-        // 3. Coder Real Deliverable Generation
-        const coderRaw = await this.modelClient.chat([
-          { role: 'system', content: '你是多智能体团队的研发工程师 (Coder)。根据架构方案，生成可执行的成果 JSON。必须只返回合法的 JSON 字符串（包含 task, architecture, deliverables, status 等键），不要附加任何 markdown 标记。' },
-          { role: 'user', content: `架构方案：${architectText}` }
-        ]);
-
-        try {
-          const cleaned = coderRaw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
-          deliverableData = JSON.parse(cleaned);
-        } catch {
-          deliverableData = { task: taskPrompt, rawCoderOutput: coderRaw, status: 'PRODUCED' };
-        }
-        coderText = `核心实现已完成并已封装为结构化数据交付物（包含 ${Object.keys(deliverableData).length} 个核心配置项）。已同步写入会话隔离区。`;
-
-        // 4. Reviewer Real Audit
-        reviewerText = await this.modelClient.chat([
-          { role: 'system', content: '你是多智能体团队的审计质检官 (Reviewer)。对研发工程师产出的交付物进行安全基线、合规性与完整性审计，给出真实客观的验收意见。以中文回答，150字以内。' },
-          { role: 'user', content: `交付数据：${JSON.stringify(deliverableData)}` }
-        ]);
-      } catch (err: any) {
-        console.warn('[AgentGroup] Dynamic collaboration error, falling back:', err.message);
-        supervisorText = `收到全局任务：「${taskPrompt}」。已在本地沙箱进行任务分析与结构化分工。`;
-        architectText = `技术方案：采用应用级工作区隔离运行，中间数据写入本地会话目录。`;
-        deliverableData = { task: taskPrompt, generatedAt: new Date().toISOString(), status: 'LOCAL_COMPLETED' };
-        coderText = `研发实现已落盘至沙箱目录，数据完整性校验通过。`;
-        reviewerText = `审计质检：本地沙箱工作区边界未突破，符合离线交付基准。`;
-      }
-    } else {
-      supervisorText = `收到全局任务：「${taskPrompt}」。已在本地沙箱进行任务分析与结构化分工。`;
-      architectText = `技术方案：采用应用级工作区隔离运行，中间数据写入本地会话目录。`;
-      deliverableData = { task: taskPrompt, generatedAt: new Date().toISOString(), status: 'LOCAL_COMPLETED' };
-      coderText = `研发实现已落盘至沙箱目录，数据完整性校验通过。`;
-      reviewerText = `审计质检：本地沙箱工作区边界未突破，符合离线交付基准。`;
+    if (!isLiveModel || !this.modelClient) {
+      throw new Error('多智能体协同运行失败: 必须配置有效大模型 API Key 以执行主管、架构师与代码工单的真实推理与共识（系统已清空所有预设假数据）。');
     }
+
+    // 1. Supervisor Real Decomposition
+    const supervisorText = await this.modelClient.chat([
+      { role: 'system', content: '你是多智能体团队的项目主管 (Supervisor)。针对用户全局任务，进行条理清晰的目标拆解、关键里程碑设定与团队分工。以中文简洁回答，150字以内。' },
+      { role: 'user', content: `任务需求：「${taskPrompt}」` }
+    ]);
+
+    // 2. Architect Real Technical Spec
+    const architectText = await this.modelClient.chat([
+      { role: 'system', content: '你是多智能体团队的系统架构师 (Architect)。依据主管拆解，拟定技术选型、数据流向与边界控制方案。以中文简洁回答，150字以内。' },
+      { role: 'user', content: `任务：${taskPrompt}\n主管拆解：${supervisorText}` }
+    ]);
+
+    // 3. Coder Real Deliverable Generation
+    const coderRaw = await this.modelClient.chat([
+      { role: 'system', content: '你是多智能体团队的研发工程师 (Coder)。根据架构方案，生成可执行的成果 JSON。必须只返回合法的 JSON 字符串（包含 task, architecture, deliverables, status 等键），不要附加任何 markdown 标记。' },
+      { role: 'user', content: `架构方案：${architectText}` }
+    ]);
+
+    let deliverableData: any = {};
+    try {
+      const cleaned = coderRaw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+      deliverableData = JSON.parse(cleaned);
+    } catch {
+      deliverableData = { task: taskPrompt, rawCoderOutput: coderRaw, status: 'PRODUCED' };
+    }
+    const coderText = `核心实现已完成并已封装为结构化数据交付物（包含 ${Object.keys(deliverableData).length} 个核心配置项）。已同步写入会话隔离区。`;
+
+    // 4. Reviewer Real Audit
+    const reviewerText = await this.modelClient.chat([
+      { role: 'system', content: '你是多智能体团队的审计质检官 (Reviewer)。对研发工程师产出的交付物进行安全基线、合规性与完整性审计，给出真实客观的验收意见。以中文回答，150字以内。' },
+      { role: 'user', content: `交付数据：${JSON.stringify(deliverableData)}` }
+    ]);
 
     conversation.push({
       id: crypto.randomUUID(),
