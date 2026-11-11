@@ -170,7 +170,58 @@ export class HybridRAGEngine {
     }
     this.avgDocLength = this.chunks.size > 0 ? totalLen / this.chunks.size : 0;
 
+    // Background embedding generation if dense embedding endpoint is configured
+    if (this.embeddingConfig && this.embeddingConfig.model && !embeddings) {
+      Promise.resolve().then(async () => {
+        for (const chunk of addedChunks) {
+          try {
+            const emb = await this.generateEmbedding(chunk.content);
+            if (emb && this.chunks.has(chunk.id)) {
+              this.chunks.get(chunk.id)!.embedding = emb;
+            }
+          } catch {}
+        }
+      });
+    }
+
     return addedChunks;
+  }
+
+  public async addDocumentWithEmbedding(
+    documentId: string,
+    documentTitle: string,
+    content: string,
+    chunkSize: number = 300,
+    chunkOverlap: number = 50,
+    spaceId: string = 'public',
+    ownerGroupId?: string
+  ): Promise<DocumentChunk[]> {
+    const chunks = this.addDocument(documentId, documentTitle, content, chunkSize, chunkOverlap, undefined, spaceId, ownerGroupId);
+    if (this.embeddingConfig && this.embeddingConfig.model) {
+      for (const chunk of chunks) {
+        try {
+          const emb = await this.generateEmbedding(chunk.content);
+          if (emb) {
+            chunk.embedding = emb;
+          }
+        } catch {}
+      }
+    }
+    return chunks;
+  }
+
+  public async queryHybridAsync(
+    queryText: string,
+    allowedGroupIds: string[] = [],
+    topK: number = 5,
+    targetSpaceId?: string
+  ): Promise<RetrievalResult[]> {
+    let queryEmbedding: number[] | undefined;
+    if (this.embeddingConfig && this.embeddingConfig.model) {
+      const emb = await this.generateEmbedding(queryText);
+      if (emb) queryEmbedding = emb;
+    }
+    return this.queryWithScope(queryText, allowedGroupIds, topK, targetSpaceId, queryEmbedding);
   }
 
   /**

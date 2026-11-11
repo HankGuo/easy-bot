@@ -97,9 +97,10 @@ export function App() {
   };
 
   useEffect(() => {
-    // Dynamic host discovery for seamless localhost / 127.0.0.1 bridge
+    // Dynamic host discovery for seamless localhost / 127.0.0.1 bridge with token query support
     const host = window.location.hostname || 'localhost';
-    const wsUrl = `ws://${host}:4100`;
+    const token = localStorage.getItem('easybot_auth_token');
+    const wsUrl = `ws://${host}:4100${token ? '?token=' + encodeURIComponent(token) : ''}`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 

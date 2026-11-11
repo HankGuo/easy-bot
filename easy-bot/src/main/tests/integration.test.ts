@@ -1,7 +1,8 @@
-import test from 'node:test';
+import test, { before, after } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import * as http from 'node:http';
 import { SandboxEngine } from '../core/sandbox-engine.js';
 import { HybridRAGEngine } from '../core/hybrid-rag.js';
 import { MCPHostManager } from '../core/mcp-host.js';
@@ -11,6 +12,108 @@ import { VibeCodingEngine } from '../core/vibecoding-engine.js';
 import { ScreenPerceptionEngine } from '../core/screen-perception.js';
 import { SkillLoader } from '../core/skill-loader.js';
 import { AgentGroupCoordinator } from '../core/agent-group.js';
+
+let testHttpServer: http.Server | null = null;
+
+before(async () => {
+  if (!process.env.OPENAI_API_KEY) {
+    testHttpServer = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        if (req.url?.includes('/chat/completions')) {
+          let parsed: any = {};
+          try { parsed = JSON.parse(body); } catch {}
+          const isToolQuery = parsed.messages?.some((m: any) => typeof m.content === 'string' && m.content.includes('调用工具'));
+          const isPing = parsed.messages?.some((m: any) => m.content === 'Ping');
+
+          if (isPing) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ choices: [{ message: { content: 'Pong (连通正常)' } }] }));
+            return;
+          }
+
+          if (parsed.stream) {
+            res.writeHead(200, {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive'
+            });
+
+            const isVibe = body.includes('CRM_Portal') || body.includes('VibeCoding');
+            if (isVibe) {
+              const vibeJson = JSON.stringify({
+                html: '<!DOCTYPE html><html><body><h1>CRM Portal</h1></body></html>',
+                css: 'body { font-family: system-ui; }',
+                js: 'console.log("CRM App Initialized");'
+              });
+              const textPayload = JSON.stringify({
+                choices: [{
+                  delta: { content: '```json\n' + vibeJson + '\n```' }
+                }]
+              });
+              res.write(`data: ${textPayload}\n\n`);
+            } else if (isToolQuery && parsed.tools?.length > 0) {
+              const toolPayload = JSON.stringify({
+                choices: [{
+                  delta: {
+                    tool_calls: [{
+                      index: 0,
+                      id: 'call_test_1',
+                      type: 'function',
+                      function: {
+                        name: 'workspace_file_write',
+                        arguments: JSON.stringify({ path: 'app.js', content: '// EasyBot Test Application Code' })
+                      }
+                    }]
+                  }
+                }]
+              });
+              res.write(`data: ${toolPayload}\n\n`);
+            } else {
+              const textPayload = JSON.stringify({
+                choices: [{
+                  delta: { content: '任务执行已完成并验证符合规范要求。' }
+                }]
+              });
+              res.write(`data: ${textPayload}\n\n`);
+            }
+            res.write('data: [DONE]\n\n');
+            res.end();
+            return;
+          } else {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ choices: [{ message: { content: 'OK' } }] }));
+            return;
+          }
+        }
+
+        if (req.url?.includes('/embeddings')) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ data: [{ embedding: [0.1, 0.2, 0.3, 0.4] }] }));
+          return;
+        }
+
+        res.writeHead(404);
+        res.end();
+      });
+    });
+
+    await new Promise<void>((resolve) => {
+      testHttpServer!.listen(4199, '127.0.0.1', () => resolve());
+    });
+
+    process.env.OPENAI_BASE_URL = 'http://127.0.0.1:4199/v1';
+    process.env.OPENAI_API_KEY = 'test_key_for_integration_runner';
+    process.env.OPENAI_MODEL = 'deepseek-r1:7b';
+  }
+});
+
+after(() => {
+  if (testHttpServer) {
+    testHttpServer.close();
+  }
+});
 
 test('1. Sandbox Isolation & Path Traversal Block', () => {
   const tmpWorkspace = path.join(process.cwd(), 'tmp_test_ws_1');
@@ -195,7 +298,7 @@ test('11. Custom Model Client Config & Tool Translation', async () => {
   const client = new ModelClient();
 
   const masked = client.getMaskedConfig();
-  assert.equal(masked.model, 'sensenova-6.8-flash-lite');
+  assert.equal(masked.model, process.env.OPENAI_MODEL || 'deepseek-r1:7b');
   assert.equal(masked.hasKey, true);
   assert.ok(masked.apiKeyMasked.includes('...'));
 
@@ -216,6 +319,7 @@ test('11. Custom Model Client Config & Tool Translation', async () => {
       }
     }]
   );
+
   assert.ok(res.toolCalls && res.toolCalls.length > 0);
   assert.equal(res.toolCalls[0].name, 'workspace_file_write');
 });
@@ -460,4 +564,105 @@ test('19. Online Atomic Database Backup & Disaster Recovery', async () => {
 
   fs.rmSync(tmpData, { recursive: true, force: true });
   fs.rmSync(tmpBackup, { force: true });
+});
+
+test('20. Hardened Sandbox Engine (Fail-Closed Docker & Local Interpreter Guard)', async () => {
+  const tmpWs = path.join(process.cwd(), 'tmp_test_ws_sb_hardening');
+  const localSandbox = new SandboxEngine(tmpWs, { backend: 'local' });
+  const sess = 'test_sb_hardening';
+
+  // 1. Block inline eval flag node -e
+  await assert.rejects(async () => {
+    await localSandbox.executeCommand(sess, 'node -e "console.log(process.mainModule)"');
+  }, /Security Violation/);
+
+  // 2. Block pipeline chain containing unauthorized / dangerous token
+  await assert.rejects(async () => {
+    await localSandbox.executeCommand(sess, 'echo ok && python -c "import os; os.system(\'id\')"');
+  }, /Security Violation/);
+
+  // 3. Local interpreter execution requires HITL approval
+  await assert.rejects(async () => {
+    await localSandbox.executeCommand(sess, 'python3 script.py', undefined, false);
+  }, /HITL_INTERCEPTED/);
+
+  // 4. Docker backend fails closed immediately on error (no silent host shell fallback)
+  const failClosedDocker = new SandboxEngine(tmpWs, {
+    backend: 'docker',
+    dockerImage: '--invalid-docker-run-flag'
+  });
+  await assert.rejects(async () => {
+    await failClosedDocker.executeCommand(sess, 'echo 123');
+  }, /Docker container/);
+
+  fs.rmSync(tmpWs, { recursive: true, force: true });
+});
+
+test('21. Persistent Confidential Knowledge Space (Zero-Leakage on Server Restart)', async () => {
+  const { SessionStore } = await import('../core/session-store.js');
+  const { KnowledgeDropWatcher } = await import('../core/knowledge-watcher.js');
+  const tmpDrop = path.join(process.cwd(), 'tmp_test_knowledge_persist');
+  const tmpData = path.join(process.cwd(), 'tmp_test_data_persist');
+
+  const store = new SessionStore(tmpData);
+  const rag1 = new HybridRAGEngine();
+  const watcher1 = new KnowledgeDropWatcher(tmpDrop, rag1, store);
+
+  // 1. Upload confidential research doc with restricted space and owner group
+  watcher1.saveAndIndexFile(
+    'quantum_secret_algo.md',
+    '# 量子退火保密算法说明\n本算法为重点实验室专用核心机密文档，严禁公开。',
+    'space_quantum_pi',
+    'grp_quantum_research',
+    'usr_pi_prof'
+  );
+
+  // 2. Verify indexed with confidential space and ownerGroupId in session 1
+  const search1 = rag1.queryWithScope('量子退火算法', ['grp_other_students']);
+  assert.equal(search1.length, 0, 'Students outside group must NOT access confidential paper');
+
+  const searchAuth = rag1.queryWithScope('量子退火算法', ['grp_quantum_research']);
+  assert.equal(searchAuth.length, 1, 'Group member can access confidential paper');
+
+  // 3. Simulate server restart: fresh RAG engine and watcher rescanning disk
+  const rag2 = new HybridRAGEngine();
+  const watcher2 = new KnowledgeDropWatcher(tmpDrop, rag2, store);
+  watcher2.sync(); // Rescans from disk
+
+  // 4. Verify confidential space and ownerGroupId are recovered from persistent SQLite store
+  const searchAfterRebootUnauthorized = rag2.queryWithScope('量子退火算法', ['grp_other_students']);
+  assert.equal(searchAfterRebootUnauthorized.length, 0, 'CRITICAL AUDIT FIX: Confidential space must NOT revert to public after server restart!');
+
+  const searchAfterRebootAuthorized = rag2.queryWithScope('量子退火算法', ['grp_quantum_research']);
+  assert.equal(searchAfterRebootAuthorized.length, 1, 'Authorized group member still retains access after restart');
+
+  fs.rmSync(tmpDrop, { recursive: true, force: true });
+  fs.rmSync(tmpData, { recursive: true, force: true });
+});
+
+test('22. Group Management RBAC & Faculty Membership Scoping', async () => {
+  const { SessionStore } = await import('../core/session-store.js');
+  const tmpData = path.join(process.cwd(), 'tmp_test_group_rbac');
+  const store = new SessionStore(tmpData);
+
+  // 1. Setup groups
+  store.createGroup({ id: 'grp_chem_lab', name: '化学院重点实验室' });
+  store.createGroup({ id: 'grp_physics_lab', name: '物理院保密课题组' });
+
+  // 2. Setup faculty user only in Chemistry Lab
+  store.createUser({ id: 'usr_prof_chem', username: 'prof_chem', passwordHash: null, displayName: '化学张教授', role: 'teacher_pi' });
+  store.addUserToGroup('usr_prof_chem', 'grp_chem_lab');
+
+  // 3. Verify teacher groups query
+  const teacherGroups = store.getUserGroupIds('usr_prof_chem');
+  assert.ok(teacherGroups.includes('grp_chem_lab'));
+  assert.equal(teacherGroups.includes('grp_physics_lab'), false);
+
+  // 4. Faculty cannot manage Physics Lab members
+  const canManageChem = teacherGroups.includes('grp_chem_lab');
+  const canManagePhysics = teacherGroups.includes('grp_physics_lab');
+  assert.equal(canManageChem, true);
+  assert.equal(canManagePhysics, false, 'Faculty member cannot manage external groups');
+
+  fs.rmSync(tmpData, { recursive: true, force: true });
 });

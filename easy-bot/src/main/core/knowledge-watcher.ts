@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { HybridRAGEngine } from './hybrid-rag';
+import { SessionStore } from './session-store';
 
 export interface WatcherStatus {
   watchDir: string;
@@ -18,19 +19,68 @@ export interface WatcherStatus {
 export class KnowledgeDropWatcher {
   private watchDir: string;
   private rag: HybridRAGEngine;
+  private store?: SessionStore;
+  private sidecarPath: string;
   private fileHashes: Map<string, string> = new Map(); // filename -> sha256
   private fileDocIds: Map<string, string> = new Map();  // filename -> documentId
   private fsWatcher: fs.FSWatcher | null = null;
   private isScanning: boolean = false;
   private lastSyncTime: string = new Date().toISOString();
 
-  constructor(watchDir: string, rag: HybridRAGEngine) {
+  constructor(watchDir: string, rag: HybridRAGEngine, store?: SessionStore) {
     this.watchDir = path.resolve(watchDir);
     this.rag = rag;
+    this.store = store;
+    this.sidecarPath = path.join(this.watchDir, '.knowledge_metadata.json');
 
     if (!fs.existsSync(this.watchDir)) {
       fs.mkdirSync(this.watchDir, { recursive: true });
     }
+  }
+
+  public setStore(store: SessionStore): void {
+    this.store = store;
+  }
+
+  private readSidecar(): Record<string, { docId: string; filename: string; spaceId: string; ownerGroupId?: string; uploadedBy?: string }> {
+    try {
+      if (fs.existsSync(this.sidecarPath)) {
+        return JSON.parse(fs.readFileSync(this.sidecarPath, 'utf-8'));
+      }
+    } catch {}
+    return {};
+  }
+
+  private getSidecarMetadata(key: string): { spaceId: string; ownerGroupId?: string } | null {
+    const data = this.readSidecar();
+    if (data[key]) {
+      return { spaceId: data[key].spaceId, ownerGroupId: data[key].ownerGroupId };
+    }
+    // Also check by filename match
+    for (const item of Object.values(data)) {
+      if (item.filename === key || item.docId === key) {
+        return { spaceId: item.spaceId, ownerGroupId: item.ownerGroupId };
+      }
+    }
+    return null;
+  }
+
+  private saveSidecarMetadata(docId: string, meta: { docId: string; filename: string; spaceId: string; ownerGroupId?: string; uploadedBy?: string }) {
+    try {
+      const data = this.readSidecar();
+      data[docId] = meta;
+      fs.writeFileSync(this.sidecarPath, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (err: any) {
+      console.warn('[KnowledgeDropWatcher] Warning: failed to write sidecar metadata:', err.message);
+    }
+  }
+
+  private deleteSidecarMetadata(docId: string) {
+    try {
+      const data = this.readSidecar();
+      delete data[docId];
+      fs.writeFileSync(this.sidecarPath, JSON.stringify(data, null, 2), 'utf-8');
+    } catch {}
   }
 
   /**
@@ -103,20 +153,26 @@ export class KnowledgeDropWatcher {
           const prevHash = this.fileHashes.get(filename);
           const docId = `drop-${path.parse(filename).name.replace(/[^a-zA-Z0-9_\u4e00-\u9fa5]/g, '_')}`;
 
+          // Retrieve persistent spaceId & ownerGroupId across reboots
+          const dbMeta = this.store ? (this.store.getKnowledgeMetadata(docId) || this.store.getKnowledgeMetadataByFilename(filename)) : null;
+          const sidecarMeta = this.getSidecarMetadata(docId) || this.getSidecarMetadata(filename);
+          const spaceId = dbMeta?.space_id || sidecarMeta?.spaceId || 'public';
+          const ownerGroupId = dbMeta?.owner_group_id || sidecarMeta?.ownerGroupId || undefined;
+
           if (!prevHash || prevHash !== hash) {
             if (prevHash) {
               this.rag.removeDocument(docId);
             }
 
             if (ext === '.pdf') {
-              this.rag.addPdfDocument(docId, filename, rawBuffer);
+              this.rag.addPdfDocument(docId, filename, rawBuffer, 300, 50, spaceId, ownerGroupId);
             } else if (ext === '.docx') {
-              this.rag.addWordDocument(docId, filename, rawBuffer);
+              this.rag.addWordDocument(docId, filename, rawBuffer, 300, 50, spaceId, ownerGroupId);
             } else if (ext === '.xlsx') {
-              this.rag.addExcelDocument(docId, filename, rawBuffer);
+              this.rag.addExcelDocument(docId, filename, rawBuffer, 300, 50, spaceId, ownerGroupId);
             } else {
               const content = rawBuffer.toString('utf-8');
-              this.rag.addDocument(docId, filename, content);
+              this.rag.addDocument(docId, filename, content, 300, 50, undefined, spaceId, ownerGroupId);
             }
 
             this.fileHashes.set(filename, hash);
@@ -170,7 +226,8 @@ export class KnowledgeDropWatcher {
     filename: string,
     content: string | Buffer,
     spaceId: string = 'public',
-    ownerGroupId?: string
+    ownerGroupId?: string,
+    uploadedBy?: string
   ): { success: boolean; documentId: string } {
     const safeName = path.basename(filename);
     const targetPath = path.join(this.watchDir, safeName);
@@ -200,6 +257,24 @@ export class KnowledgeDropWatcher {
       this.rag.addDocument(docId, safeName, rawBuffer.toString('utf-8'), 300, 50, undefined, spaceId, ownerGroupId);
     }
 
+    // Persist confidential space & group metadata to SQLite & sidecar
+    if (this.store) {
+      this.store.saveKnowledgeMetadata({
+        docId,
+        filename: safeName,
+        spaceId,
+        ownerGroupId,
+        uploadedBy
+      });
+    }
+    this.saveSidecarMetadata(docId, {
+      docId,
+      filename: safeName,
+      spaceId,
+      ownerGroupId,
+      uploadedBy
+    });
+
     const hash = crypto.createHash('sha256').update(rawBuffer).digest('hex');
     this.fileHashes.set(safeName, hash);
     this.fileDocIds.set(safeName, docId);
@@ -209,9 +284,11 @@ export class KnowledgeDropWatcher {
 
   public deleteFile(docIdOrFilename: string): boolean {
     let targetFilename: string | undefined;
+    let targetDocId: string | undefined;
     for (const [fn, docId] of this.fileDocIds.entries()) {
       if (fn === docIdOrFilename || docId === docIdOrFilename) {
         targetFilename = fn;
+        targetDocId = docId;
         break;
       }
     }
@@ -220,6 +297,12 @@ export class KnowledgeDropWatcher {
       const fullPath = path.join(this.watchDir, targetFilename);
       if (fs.existsSync(fullPath)) {
         fs.unlinkSync(fullPath);
+      }
+      if (targetDocId) {
+        if (this.store) {
+          this.store.deleteKnowledgeMetadata(targetDocId);
+        }
+        this.deleteSidecarMetadata(targetDocId);
       }
       this.sync();
       return true;

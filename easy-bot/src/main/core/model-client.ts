@@ -56,9 +56,9 @@ export class ModelClient {
   constructor(initialConfig?: Partial<ModelConfig>) {
     this.config = {
       provider: (process.env.OPENAI_PROVIDER as any) || 'openai-compatible',
-      baseUrl: process.env.OPENAI_BASE_URL || 'https://token.sensenova.cn/v1',
-      apiKey: process.env.OPENAI_API_KEY || 'sk-3UHPzn5qZBVktG9EZwE7AYxoXSxxxUTS',
-      model: process.env.OPENAI_MODEL || 'sensenova-6.8-flash-lite',
+      baseUrl: process.env.OPENAI_BASE_URL || 'http://127.0.0.1:11434/v1',
+      apiKey: process.env.OPENAI_API_KEY || '',
+      model: process.env.OPENAI_MODEL || 'deepseek-r1:7b',
       temperature: 0.7,
       maxTokens: 8192,
       embeddingBaseUrl: process.env.OPENAI_EMBEDDING_BASE_URL,
@@ -156,11 +156,12 @@ export class ModelClient {
    */
   public async testConnection(): Promise<{ success: boolean; latencyMs: number; responsePreview?: string; error?: string }> {
     const start = Date.now();
-    if (!this.config.apiKey && this.config.provider !== 'ollama') {
+    const isLocalEndpoint = this.config.baseUrl.includes('127.0.0.1') || this.config.baseUrl.includes('localhost') || this.config.provider === 'ollama';
+    if (!this.config.apiKey && !isLocalEndpoint) {
       return {
         success: false,
         latencyMs: 0,
-        error: '未配置 API Key（对于云端大模型，必须提供有效密钥，已严格禁用离线 Mock 模拟）'
+        error: '未配置 API Key（针对公网商业大模型必须配置有效密钥；若使用校园私有化算力，请配置本地 Ollama/vLLM 局域网服务地址）'
       };
     }
 
@@ -172,7 +173,7 @@ export class ModelClient {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.config.apiKey}`
+          ...(this.config.apiKey ? { 'Authorization': `Bearer ${this.config.apiKey}` } : {})
         },
         body: JSON.stringify({
           model: this.config.model,
@@ -219,9 +220,9 @@ export class ModelClient {
     onToken?: (token: string) => void
   ): Promise<{ content: string; toolCalls?: { id: string; name: string; args: Record<string, any> }[] }> {
     const startTime = Date.now();
-    // Zero-Mock Guard: strictly require valid API Key
-    if (!this.config.apiKey && this.config.provider !== 'ollama') {
-      throw new Error('未配置大模型 API Key（Model API Key is not configured）。系统已彻底禁用离线模拟回包（Zero-Mock 准则生效），请在系统设置中配置有效的 BaseURL 与 API Key。');
+    const isLocalEndpoint = this.config.baseUrl.includes('127.0.0.1') || this.config.baseUrl.includes('localhost') || this.config.provider === 'ollama';
+    if (!this.config.apiKey && !isLocalEndpoint) {
+      throw new Error('未配置大模型 API Key（Model API Key is not configured）。系统已彻底禁用离线模拟回包（Zero-Mock 准则生效），请在系统设置中配置有效密钥或切换为本地私有化大模型（vLLM / Ollama）。');
     }
 
     // 2. Format OpenAI tools schema

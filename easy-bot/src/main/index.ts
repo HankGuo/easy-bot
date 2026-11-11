@@ -58,26 +58,31 @@ const modelClient = router.getModelClient();
 const store = new SessionStore(DATA_DIR);
 modelClient.setStore(store);
 
-// Persistent Model Config: load from disk if present, or initialize with SenseNova
+// Persistent Model Config: default to campus on-premise endpoint (vLLM / Ollama) or environment
 const MODEL_CONFIG_FILE = path.join(DATA_DIR, 'model_config.json');
 if (fs.existsSync(MODEL_CONFIG_FILE)) {
   try {
     const savedConfig = JSON.parse(fs.readFileSync(MODEL_CONFIG_FILE, 'utf-8'));
+    // Security Scrub: strip any placeholder or leaked credentials
+    if (savedConfig.apiKey && (savedConfig.apiKey.includes('xxx') || savedConfig.apiKey.includes('sk-3UHPzn5q'))) {
+      savedConfig.apiKey = process.env.OPENAI_API_KEY || '';
+      fs.writeFileSync(MODEL_CONFIG_FILE, JSON.stringify(savedConfig, null, 2), 'utf-8');
+    }
     modelClient.updateConfig(savedConfig);
   } catch (err: any) {
     console.warn('Failed to load saved model config:', err.message);
   }
 } else {
-  const initialSenseNova = {
-    provider: 'openai-compatible',
-    baseUrl: process.env.OPENAI_BASE_URL || 'https://token.sensenova.cn/v1',
-    apiKey: process.env.OPENAI_API_KEY || 'sk-3UHPzn5qZBVktG9EZwE7AYxoXSxxxUTS',
-    model: process.env.OPENAI_MODEL || 'sensenova-6.8-flash-lite',
+  const defaultCampusModel = {
+    provider: (process.env.OPENAI_PROVIDER as any) || 'openai-compatible',
+    baseUrl: process.env.OPENAI_BASE_URL || 'http://127.0.0.1:11434/v1',
+    apiKey: process.env.OPENAI_API_KEY || '',
+    model: process.env.OPENAI_MODEL || 'deepseek-r1:7b',
     temperature: 0.7,
     maxTokens: 4096
   };
-  modelClient.updateConfig(initialSenseNova as any);
-  fs.writeFileSync(MODEL_CONFIG_FILE, JSON.stringify(initialSenseNova, null, 2), 'utf-8');
+  modelClient.updateConfig(defaultCampusModel as any);
+  fs.writeFileSync(MODEL_CONFIG_FILE, JSON.stringify(defaultCampusModel, null, 2), 'utf-8');
 }
 
 const workflow = new WorkflowEngine(sandbox, rag, mcp, modelClient);
@@ -233,8 +238,8 @@ if (existingDropFiles.length === 0) {
 `.trim(), 'utf-8');
 }
 
-// Start Knowledge Drop-Directory Watcher
-const dropWatcher = new KnowledgeDropWatcher(DROP_DIR, rag);
+// Start Knowledge Drop-Directory Watcher (integrated with SQLite persistence)
+const dropWatcher = new KnowledgeDropWatcher(DROP_DIR, rag, store);
 dropWatcher.start();
 
 // Create HTTP Server
@@ -536,6 +541,22 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const { userId, groupId } = JSON.parse(body || '{}');
+        if (!userId || !groupId) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing userId or groupId' }));
+          return;
+        }
+
+        // Faculty authorization check: teachers can only manage members in groups they belong to
+        if (currentUser?.role !== 'superadmin') {
+          const facultyGroups = store.getUserGroupIds(currentUser?.userId || '');
+          if (!facultyGroups.includes(groupId)) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: `Forbidden: Faculty members can only manage members in groups they belong to (${groupId})` }));
+            return;
+          }
+        }
+
         store.addUserToGroup(userId, groupId);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, userId, groupId }));
@@ -729,9 +750,50 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (url.pathname === '/api/mcp/servers') {
+  if (url.pathname === '/api/mcp/servers' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(mcp.listServers()));
+    return;
+  }
+
+  if (url.pathname === '/api/mcp/servers' && req.method === 'POST') {
+    if (!requireRole(res, currentUser, ['superadmin'])) return;
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const config = JSON.parse(body || '{}');
+        if (!config.id || !config.name || !config.transport) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'id, name, and transport (stdio|sse|websocket) are required' }));
+          return;
+        }
+        const server = await mcp.registerServer(config);
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, server }));
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  if (url.pathname.startsWith('/api/mcp/servers/') && req.method === 'DELETE') {
+    if (!requireRole(res, currentUser, ['superadmin'])) return;
+    const serverId = decodeURIComponent(url.pathname.slice('/api/mcp/servers/'.length));
+    if (!serverId) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Server ID is required' }));
+      return;
+    }
+    mcp.disconnectServer(serverId).then((success) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success, serverId }));
+    }).catch((err) => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    });
     return;
   }
 
@@ -775,7 +837,7 @@ const server = http.createServer((req, res) => {
           }
         }
 
-        const result = dropWatcher.saveAndIndexFile(filename, content, spaceId || 'public', ownerGroupId);
+        const result = dropWatcher.saveAndIndexFile(filename, content, spaceId || 'public', ownerGroupId, currentUser?.userId);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, result, stats: rag.getStats() }));
       } catch (err: any) {
@@ -938,26 +1000,104 @@ const server = http.createServer((req, res) => {
   res.end(JSON.stringify({ error: 'Endpoint not found' }));
 });
 
-// WebSocket Server
+// WebSocket Server with Strict Origin & Authentication Governance
 const wss = new WebSocketServer({ server });
 
 wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
-  const wsUrl = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
-  const user = resolveUser(req, wsUrl);
-
-  if (!user && HOST !== '127.0.0.1') {
-    ws.close(4401, 'Unauthorized');
-    return;
+  // 1. Origin Header Validation: Mitigate Cross-Site WebSocket Hijacking (CSWSH)
+  const origin = req.headers['origin'];
+  if (origin) {
+    try {
+      const parsedOrigin = new URL(origin);
+      const isAllowedHost = ['127.0.0.1', 'localhost', HOST].includes(parsedOrigin.hostname) ||
+        parsedOrigin.protocol === 'vscode-webview:' || parsedOrigin.protocol === 'file:';
+      if (!isAllowedHost) {
+        console.warn(`[WebSocket Security] Blocked cross-site connection from untrusted origin: ${origin}`);
+        ws.close(4403, 'Forbidden Origin: Cross-site connection rejected');
+        return;
+      }
+    } catch {
+      ws.close(4403, 'Invalid Origin');
+      return;
+    }
   }
+
+  // 2. Authentication Resolution: URL query param (?token=) or Authorization header
+  const wsUrl = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
+  let wsUser: JWTPayload | null = resolveUser(req, wsUrl);
+
+  // If not authenticated upon handshake, grant a 5-second grace period for an 'authenticate' frame
+  let authTimer: NodeJS.Timeout | null = null;
+  if (!wsUser) {
+    authTimer = setTimeout(() => {
+      if (!wsUser) {
+        try {
+          ws.send(JSON.stringify({ type: 'auth_error', payload: { error: 'Authentication timeout: Valid token required within 5 seconds.' } }));
+          ws.close(4401, 'Unauthorized');
+        } catch {}
+      }
+    }, 5000);
+  }
+
+  ws.on('close', () => {
+    if (authTimer) {
+      clearTimeout(authTimer);
+      authTimer = null;
+    }
+  });
 
   ws.on('message', async (raw) => {
     try {
       const data = JSON.parse(raw.toString());
       const { type, payload, id } = data;
 
+      // Authentication Frame Handshake
+      if (type === 'authenticate') {
+        const token = payload?.token;
+        if (token) {
+          if (token === AUTH_TOKEN) {
+            wsUser = {
+              userId: 'usr_admin',
+              username: 'admin',
+              displayName: '系统管理员 (Super Admin)',
+              role: 'superadmin',
+              authSource: 'master_key',
+              department: '信息化安全中心',
+              groups: ['grp_all', 'grp_ai_lab']
+            };
+          } else {
+            wsUser = CryptoUtil.verifyJWT(token, AUTH_TOKEN);
+          }
+        }
+
+        if (wsUser) {
+          if (authTimer) {
+            clearTimeout(authTimer);
+            authTimer = null;
+          }
+          ws.send(JSON.stringify({
+            type: 'authenticated',
+            id,
+            payload: { user: wsUser, message: 'WebSocket session authenticated successfully' }
+          }));
+          return;
+        } else {
+          ws.send(JSON.stringify({ type: 'auth_error', id, payload: { error: 'Invalid or expired authentication token' } }));
+          ws.close(4401, 'Unauthorized');
+          return;
+        }
+      }
+
+      // Enforce strict authentication before dispatching any other message
+      if (!wsUser) {
+        ws.send(JSON.stringify({ type: 'error', id, error: 'Authentication required. Send authenticate frame before invoking operations.' }));
+        ws.close(4401, 'Unauthorized');
+        return;
+      }
+
       switch (type) {
         case 'create_session': {
-          const session = router.createSession(payload?.title, payload?.backend, payload?.id);
+          const session = router.createSession(payload?.title, payload?.backend, payload?.id, wsUser.userId);
           store.saveSession(session);
           ws.send(JSON.stringify({ type: 'session_created', id, payload: session }));
           break;
@@ -969,6 +1109,11 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
         }
 
         case 'set_model_config': {
+          // RBAC Check: Only superadmin can modify global model configuration
+          if (wsUser.role !== 'superadmin') {
+            ws.send(JSON.stringify({ type: 'error', id, error: 'Forbidden: Superadmin role required to update model configuration.' }));
+            break;
+          }
           router.getModelClient().updateConfig(payload);
           fs.writeFileSync(MODEL_CONFIG_FILE, JSON.stringify(router.getModelClient().getConfig(), null, 2), 'utf-8');
           ws.send(JSON.stringify({ type: 'model_config_updated', id, payload: router.getModelClient().getMaskedConfig() }));
@@ -982,7 +1127,8 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
         }
 
         case 'list_sessions': {
-          const sessions = router.listSessions();
+          // Tenant-scoped session listing based on user ID and role
+          const sessions = router.listSessions(wsUser.userId, wsUser.role);
           ws.send(JSON.stringify({ type: 'sessions_list', id, payload: sessions }));
           break;
         }
@@ -1007,13 +1153,19 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
         }
 
         case 'query_rag': {
-          const allowedGroups = user?.groups || [];
-          const results = rag.queryWithScope(payload.query, allowedGroups, payload.topK || 5);
+          const allowedGroups = wsUser.groups || [];
+          // Automated hybrid dense vector + BM25 reciprocal rank fusion retrieval
+          const results = await rag.queryHybridAsync(payload.query, allowedGroups, payload.topK || 5, payload.spaceId);
           ws.send(JSON.stringify({ type: 'rag_results', id, payload: results }));
           break;
         }
 
         case 'get_audit_logs': {
+          // RBAC Check: Audit logs are restricted to faculty reviewers and administrators
+          if (wsUser.role !== 'superadmin' && wsUser.role !== 'teacher_pi') {
+            ws.send(JSON.stringify({ type: 'error', id, error: 'Forbidden: Insufficient privileges to view audit logs.' }));
+            break;
+          }
           const logs = sandbox.getAuditLogs(payload?.sessionId);
           ws.send(JSON.stringify({ type: 'audit_logs', id, payload: logs }));
           break;
@@ -1061,16 +1213,22 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
 
         case 'execute_sandbox_command': {
           const { command, sessionId } = payload || {};
+          const targetSessionId = sessionId || 'default';
+          const targetSession = router.getSession(targetSessionId);
+          if (targetSession && targetSession.userId && wsUser.role !== 'superadmin' && targetSession.userId !== wsUser.userId) {
+            ws.send(JSON.stringify({ type: 'error', id, error: 'Forbidden: Cannot execute command inside another user session.' }));
+            break;
+          }
           try {
             // Enforce false: WebSocket clients cannot bypass HITL approval
-            const cmdRes = await sandbox.executeCommand(sessionId || 'default', command, undefined, false);
+            const cmdRes = await sandbox.executeCommand(targetSessionId, command, undefined, false);
             ws.send(JSON.stringify({ type: 'sandbox_command_executed', id, payload: cmdRes }));
           } catch (err: any) {
             if (err.message.startsWith('HITL_INTERCEPTED')) {
               const reqItem = store.createHITLRequest({
                 id: 'hitl_' + crypto.randomUUID().slice(0, 8),
-                sessionId: sessionId || 'default',
-                userId: user?.userId || 'anonymous',
+                sessionId: targetSessionId,
+                userId: wsUser.userId,
                 command,
                 riskLevel: 'high',
                 reason: err.message
@@ -1113,8 +1271,8 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
           const { channelId, senderId, senderName, text } = payload || {};
           const res = await imEngine.sendMessage(
             channelId || 'chan-all',
-            senderId || user?.userId || 'user-1',
-            senderName || user?.displayName || 'User',
+            senderId || wsUser.userId,
+            senderName || wsUser.displayName,
             text,
             (token) => {
               ws.send(JSON.stringify({
@@ -1148,7 +1306,7 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
     payload: {
       message: 'Connected to EasyBot EduAgent OS Core Runtime',
       version: '2.5.0-org',
-      currentUser: user,
+      currentUser: wsUser,
       activeSandbox: true,
       features: ['LDAP', 'MultiTenancy', 'WeComDingTalk', 'HybridRAG', 'ContainerSandbox', 'HITL']
     }

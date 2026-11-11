@@ -142,10 +142,16 @@ export class WorkflowEngine {
 
           case 'CODE_EXEC': {
             const code = this.interpolate(cfg.codeSnippet || '', context);
-            // Execute inside isolated Micro-Sandbox
+            // Write script safely into session workspace, avoiding dangerous inline eval flags
+            const scriptPath = this.sandbox.validatePathAccess(sessionId, '_workflow_runner.js', 'WRITE');
+            const fs = await import('node:fs');
+            fs.writeFileSync(scriptPath, code, 'utf-8');
+
             const execRes = await this.sandbox.executeCommand(
               sessionId,
-              `node -e '${code.replace(/'/g, "\\'")}'`
+              'node _workflow_runner.js',
+              undefined,
+              true // Engine internal automated step runs with verified system authorization
             );
             nodeOutput = execRes.stdout.trim() || execRes.stderr.trim();
             if (cfg.outputKey) context[cfg.outputKey] = nodeOutput;

@@ -45,6 +45,15 @@ export interface HITLRequestRow {
   resolved_at: string | null;
 }
 
+export interface KnowledgeFileMetadataRow {
+  doc_id: string;
+  filename: string;
+  space_id: string;
+  owner_group_id: string | null;
+  uploaded_by: string | null;
+  created_at: string;
+}
+
 export class SessionStore {
   private db: Database.Database;
 
@@ -169,6 +178,15 @@ export class SessionStore {
         space_type TEXT NOT NULL DEFAULT 'public',
         owner_group_id TEXT,
         description TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS knowledge_file_metadata (
+        doc_id TEXT PRIMARY KEY,
+        filename TEXT NOT NULL,
+        space_id TEXT NOT NULL DEFAULT 'public',
+        owner_group_id TEXT,
+        uploaded_by TEXT,
         created_at TEXT NOT NULL
       );
     `);
@@ -439,5 +457,46 @@ export class SessionStore {
 
   public listKnowledgeSpaces(): any[] {
     return this.db.prepare('SELECT * FROM knowledge_spaces ORDER BY created_at DESC').all();
+  }
+
+  // --- Knowledge File Metadata Persistence ---
+  public saveKnowledgeMetadata(meta: {
+    docId: string;
+    filename: string;
+    spaceId: string;
+    ownerGroupId?: string;
+    uploadedBy?: string;
+  }): void {
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      INSERT OR REPLACE INTO knowledge_file_metadata (doc_id, filename, space_id, owner_group_id, uploaded_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      meta.docId,
+      meta.filename,
+      meta.spaceId || 'public',
+      meta.ownerGroupId || null,
+      meta.uploadedBy || null,
+      now
+    );
+  }
+
+  public getKnowledgeMetadata(docId: string): KnowledgeFileMetadataRow | null {
+    const row = this.db.prepare('SELECT * FROM knowledge_file_metadata WHERE doc_id = ?').get(docId);
+    return (row as KnowledgeFileMetadataRow) || null;
+  }
+
+  public getKnowledgeMetadataByFilename(filename: string): KnowledgeFileMetadataRow | null {
+    const row = this.db.prepare('SELECT * FROM knowledge_file_metadata WHERE filename = ?').get(filename);
+    return (row as KnowledgeFileMetadataRow) || null;
+  }
+
+  public deleteKnowledgeMetadata(docId: string): boolean {
+    const res = this.db.prepare('DELETE FROM knowledge_file_metadata WHERE doc_id = ?').run(docId);
+    return res.changes > 0;
+  }
+
+  public listAllKnowledgeMetadata(): KnowledgeFileMetadataRow[] {
+    return this.db.prepare('SELECT * FROM knowledge_file_metadata ORDER BY created_at DESC').all() as KnowledgeFileMetadataRow[];
   }
 }

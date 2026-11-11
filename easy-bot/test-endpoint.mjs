@@ -24,7 +24,7 @@ function getArg(flag, def = '') {
 const isMock = args.includes('--mock');
 const isOllama = args.includes('--ollama');
 const baseUrl = getArg('--base-url', isOllama ? 'http://localhost:11434/v1' : (isMock ? 'http://127.0.0.1:4100/mock' : 'https://token.sensenova.cn/v1'));
-const apiKey = getArg('--key', process.env.OPENAI_API_KEY || (isOllama || isMock ? '' : 'sk-3UHPzn5qZBVktG9EZwE7AYxoXSxxxUTS'));
+const apiKey = getArg('--key', process.env.OPENAI_API_KEY || '');
 const model = getArg('--model', isOllama ? 'llama3:latest' : (isMock ? 'mock-agent' : 'sensenova-6.8-flash-lite'));
 
 console.log('\n======================================================');
