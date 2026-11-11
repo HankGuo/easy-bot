@@ -20,8 +20,18 @@ import { TokenMonitor } from './components/TokenMonitor';
 import { IMWorkspace } from './components/IMWorkspace';
 import { ConnectorStudio } from './components/ConnectorStudio';
 import { ExpertStudio } from './components/ExpertStudio';
+import { CampusAuthModal, type CampusUser } from './components/CampusAuthModal';
 
 export function App() {
+  const [currentUser, setCurrentUser] = useState<CampusUser | null>(() => {
+    try {
+      const saved = localStorage.getItem('easybot_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<
@@ -41,6 +51,51 @@ export function App() {
 
   const wsRef = useRef<WebSocket | null>(null);
 
+  const getAuthHeaders = (): Record<string, string> => {
+    const token = localStorage.getItem('easybot_auth_token');
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+  };
+
+  useEffect(() => {
+    const token = localStorage.getItem('easybot_auth_token');
+    const host = window.location.hostname || 'localhost';
+    if (token) {
+      fetch(`http://${host}:4100/api/auth/me`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).then(r => {
+        if (!r.ok) throw new Error('Auth invalid');
+        return r.json();
+      }).then(data => {
+        if (data.user) {
+          setCurrentUser(data.user);
+          localStorage.setItem('easybot_user', JSON.stringify(data.user));
+        } else {
+          setIsAuthModalOpen(true);
+        }
+      }).catch(() => {
+        setIsAuthModalOpen(true);
+      });
+    } else {
+      setIsAuthModalOpen(true);
+    }
+  }, []);
+
+  const handleLoginSuccess = (user: CampusUser, token: string) => {
+    setCurrentUser(user);
+    setIsAuthModalOpen(false);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'authenticate', payload: { token } }));
+      wsRef.current.send(JSON.stringify({ type: 'list_sessions' }));
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('easybot_auth_token');
+    localStorage.removeItem('easybot_user');
+    setCurrentUser(null);
+    setIsAuthModalOpen(true);
+  };
+
   useEffect(() => {
     // Dynamic host discovery for seamless localhost / 127.0.0.1 bridge
     const host = window.location.hostname || 'localhost';
@@ -50,6 +105,10 @@ export function App() {
 
     ws.onopen = () => {
       setIsConnected(true);
+      const token = localStorage.getItem('easybot_auth_token');
+      if (token) {
+        ws.send(JSON.stringify({ type: 'authenticate', payload: { token } }));
+      }
       ws.send(JSON.stringify({ type: 'list_sessions' }));
       ws.send(JSON.stringify({ type: 'get_audit_logs' }));
       ws.send(JSON.stringify({ type: 'list_skills' }));
@@ -136,9 +195,9 @@ export function App() {
 
     // Load MCP and initial data via REST
     const apiBase = `http://${host}:4100`;
-    fetch(`${apiBase}/api/mcp/servers`).then(r => r.json()).then(setServers).catch(() => {});
-    fetch(`${apiBase}/api/mcp/tools`).then(r => r.json()).then(setTools).catch(() => {});
-    fetch(`${apiBase}/api/model/config`).then(r => r.json()).then(d => {
+    fetch(`${apiBase}/api/mcp/servers`, { headers: getAuthHeaders() }).then(r => r.json()).then(setServers).catch(() => {});
+    fetch(`${apiBase}/api/mcp/tools`, { headers: getAuthHeaders() }).then(r => r.json()).then(setTools).catch(() => {});
+    fetch(`${apiBase}/api/model/config`, { headers: getAuthHeaders() }).then(r => r.json()).then(d => {
       if (d?.model) setActiveModel(d.model);
     }).catch(() => {});
 
@@ -216,11 +275,14 @@ export function App() {
     const host = window.location.hostname || 'localhost';
     const res = await fetch(`http://${host}:4100/api/im/send`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
       body: JSON.stringify({
         channelId,
-        senderId: 'user-cto',
-        senderName: 'CTO (您)',
+        senderId: currentUser?.id || 'user-cto',
+        senderName: currentUser ? currentUser.displayName : 'CTO (您)',
         text
       })
     });
@@ -359,7 +421,10 @@ export function App() {
     const host = window.location.hostname || 'localhost';
     await fetch(`http://${host}:4100/api/model/config`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
       body: JSON.stringify(config)
     });
     if (config.model) setActiveModel(config.model);
@@ -367,7 +432,10 @@ export function App() {
 
   const handleTestModelConnection = async () => {
     const host = window.location.hostname || 'localhost';
-    const res = await fetch(`http://${host}:4100/api/model/test`, { method: 'POST' });
+    const res = await fetch(`http://${host}:4100/api/model/test`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
     return await res.json();
   };
 
@@ -624,6 +692,56 @@ export function App() {
 
       {/* Right Main Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-50">
+        {/* Top Campus Organization & Identity Header */}
+        <header className="h-12 bg-white border-b border-slate-200 px-4 flex items-center justify-between shrink-0 shadow-2xs">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-semibold text-slate-700 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              高校组织级 Agent 平台 (EduAgent OS)
+            </span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/80 font-medium">
+              全链路安全隔离
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {currentUser ? (
+              <div className="flex items-center gap-2.5">
+                <div className="text-right">
+                  <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5 justify-end">
+                    <span>{currentUser.displayName}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                      currentUser.role === 'superadmin' ? 'bg-purple-100 text-purple-700' :
+                      currentUser.role === 'teacher_pi' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'
+                    }`}>
+                      {currentUser.role === 'superadmin' ? '系统管理员' : currentUser.role === 'teacher_pi' ? 'PI 导师' : '学生/助教'}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-400">{currentUser.department || '计算机科学与技术学院'}</div>
+                </div>
+                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-xs font-bold shadow-2xs">
+                  {currentUser.displayName.slice(0, 1)}
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="px-2.5 py-1 text-xs text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                  title="注销身份退出"
+                >
+                  退出
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setIsAuthModalOpen(true)}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+              >
+                <Shield className="w-3.5 h-3.5" />
+                <span>统一身份认证登录</span>
+              </button>
+            )}
+          </div>
+        </header>
+
         <div className="flex-1 h-full overflow-hidden">
           {/* 1. Flagship Enterprise IM Workspace */}
           {activeTab === 'im' && (
@@ -719,6 +837,12 @@ export function App() {
         onClose={() => setIsSettingsOpen(false)}
         onSaveConfig={handleSaveModelConfig}
         onTestConnection={handleTestModelConnection}
+      />
+
+      {/* Campus IAM Modal */}
+      <CampusAuthModal
+        isOpen={isAuthModalOpen}
+        onSuccess={handleLoginSuccess}
       />
     </div>
   );

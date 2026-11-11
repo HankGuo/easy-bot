@@ -37,6 +37,7 @@ export interface AgentSession {
   createdAt: string;
   workspacePath: string;
   messages: AgentMessage[];
+  userId?: string;
 }
 
 export class AgentRouter {
@@ -63,7 +64,7 @@ export class AgentRouter {
     return this.dshAdapter;
   }
 
-  public createSession(title: string, backend: AgentSession['backend'] = 'DeepSeekHarness', customId?: string): AgentSession {
+  public createSession(title: string, backend: AgentSession['backend'] = 'DeepSeekHarness', customId?: string, userId?: string): AgentSession {
     const id = customId || crypto.randomUUID();
     const workspacePath = this.sandbox.getSessionWorkspace(id);
 
@@ -73,7 +74,8 @@ export class AgentRouter {
       backend,
       createdAt: new Date().toISOString(),
       workspacePath,
-      messages: []
+      messages: [],
+      userId: userId || 'usr_admin'
     };
 
     this.sessions.set(id, session);
@@ -84,8 +86,12 @@ export class AgentRouter {
     return this.sessions.get(id);
   }
 
-  public listSessions(): AgentSession[] {
-    return Array.from(this.sessions.values()).sort(
+  public listSessions(userId?: string, role?: string): AgentSession[] {
+    let list = Array.from(this.sessions.values());
+    if (role && role !== 'superadmin' && userId) {
+      list = list.filter(s => !s.userId || s.userId === userId);
+    }
+    return list.sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
   }

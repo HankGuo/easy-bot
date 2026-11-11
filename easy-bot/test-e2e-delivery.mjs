@@ -1,17 +1,39 @@
 import assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 async function runEndToEndDeliveryVerification() {
   console.log('================================================================');
-  console.log('🚀 [EasyBot (EduAgent OS) 组织级全链路端到端自动化验收套件]');
+  console.log('🚀 [EasyBot (EduAgent OS) 组织级全链路端到端自动化验收套件 (Hardened v2)]');
   console.log('================================================================\n');
 
   const BASE_URL = 'http://127.0.0.1:4100';
 
-  // 0. 动态配置测试期大模型端点 (SenseNova 6.8 Flash-Lite 直连测试)
-  console.log('▶ [步骤 0] 动态配置真实大模型端点 (SenseNova 6.8 直连，零预制厂商硬编码)...');
-  const testConfigRes = await fetch(`${BASE_URL}/api/model/config`, {
+  // 0. 读取超级管理员凭据并登录
+  console.log('▶ [步骤 0] 超级管理员安全认证登录 (读取 initial_admin.credentials 凭证)...');
+  let adminPassword = process.env.EASYBOT_ADMIN_PASSWORD || 'admin123456';
+  const credFile = path.join(process.cwd(), '.easybot_data', 'initial_admin.credentials');
+  if (fs.existsSync(credFile)) {
+    const credContent = fs.readFileSync(credFile, 'utf-8');
+    const match = credContent.match(/PASSWORD=(.*)/);
+    if (match) adminPassword = match[1].trim();
+  }
+
+  const adminLoginRes = await fetch(`${BASE_URL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'admin', password: adminPassword })
+  });
+  const adminLogin = await adminLoginRes.json();
+  assert.equal(adminLogin.success, true);
+  const adminToken = adminLogin.token;
+  console.log(`✔ 超管安全登录成功: ${adminLogin.user.displayName} (角标: ${adminLogin.user.role}) | 颁发签名 JWT\n`);
+
+  // 0.1 动态配置测试期大模型端点 (SenseNova 6.8 Flash-Lite 直连，RBAC 鉴权保护)
+  console.log('▶ [步骤 0.1] 超管权限动态配置大模型端点 (SenseNova 6.8 直连，零预制厂商硬编码)...');
+  const testConfigRes = await fetch(`${BASE_URL}/api/model/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
     body: JSON.stringify({
       provider: 'openai-compatible',
       baseUrl: process.env.TEST_AI_BASE_URL || 'https://token.sensenova.cn/v1',
@@ -34,8 +56,22 @@ async function runEndToEndDeliveryVerification() {
   console.log(`✔ 服务运行正常: ${health.name} v${health.version} | 特性列表: ${health.features.join(', ')}\n`);
 
   // 2. 验证校园统一身份认证 (本地密码 + LDAP JIT 自动建号与 JWT 签发)
-  console.log('▶ [步骤 2] 验证校园统一身份认证 (LDAP 自动建号与 JWT 签发)...');
+  console.log('▶ [步骤 2] 验证校园统一身份认证与超管用户分配...');
   
+  // 2.0 确保导师账号 prof_zhang 存在
+  await fetch(`${BASE_URL}/api/org/users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+    body: JSON.stringify({
+      username: 'prof_zhang',
+      password: 'prof123456',
+      displayName: '张教授 (PI)',
+      role: 'teacher_pi',
+      department: '人工智能国家重点实验室',
+      groups: ['grp_all', 'grp_ai_lab']
+    })
+  });
+
   // 2.1 本地导师登录
   const loginTeacherRes = await fetch(`${BASE_URL}/api/auth/login`, {
     method: 'POST',
@@ -121,21 +157,22 @@ async function runEndToEndDeliveryVerification() {
   console.log(`✔ 企业微信入站消息成功路由至【${wecomInbound.reply.expertName}】 (SenseNova 真实推理时延: ${latency}ms)`);
   console.log(`  - 专家回复摘要:\n${wecomInbound.reply.reply.slice(0, 180)}...\n`);
 
-  // 6. 危险命令防线与 HITL 人工审批流程闭环
-  console.log('▶ [步骤 6] 验证沙箱高危指令拦截与 HITL 人工审批流...');
+  // 6. 危险命令防线与 HITL 人工审批流程闭环 (防线硬化：禁止客户端越权旁路)
+  console.log('▶ [步骤 6] 验证沙箱高危指令拦截与 HITL 人工审批流 (零客户端绕过后门)...');
   const dangerousCmdRes = await fetch(`${BASE_URL}/api/sandbox/execute`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${studentToken}` },
     body: JSON.stringify({
       command: 'rm -rf ./cached_weights',
-      sessionId: 'sess_test_hitl'
+      sessionId: 'sess_test_hitl',
+      bypassHITL: true // 恶意请求尝试传递 bypass 标志，服务器必须坚决拒绝并实施拦截
     })
   });
-  assert.equal(dangerousCmdRes.status, 202); // Accepted / Intercepted
+  assert.equal(dangerousCmdRes.status, 202); // 必须被强制拦截为 202
   const hitlData = await dangerousCmdRes.json();
   assert.equal(hitlData.hitlRequired, true);
   const requestId = hitlData.requestId;
-  console.log(`✔ 危险指令被安全沙箱成功拦截: [${requestId}] ${hitlData.message}`);
+  console.log(`✔ 危险指令被安全沙箱成功拦截 (客户端绕过尝试已失效): [${requestId}] ${hitlData.message}`);
 
   // 查询待审批列表
   const pendingRes = await fetch(`${BASE_URL}/api/hitl/pending`, {
@@ -154,7 +191,7 @@ async function runEndToEndDeliveryVerification() {
   const resolveData = await resolveRes.json();
   assert.equal(resolveData.success, true);
   assert.equal(resolveData.status, 'approved');
-  console.log(`✔ 导师已批准工单 ${requestId}，HITL 安全审计闭环完成。\n`);
+  console.log(`✔ 导师已批准工单 ${requestId}，服务端受控沙箱代行执行闭环完成。\n`);
 
   // 7. 真实 Token 与推理成本财务级存证 (零Mock存证审计)
   console.log('▶ [步骤 7] 检验 SQLite WAL 真实 Token 吞吐与成本存证...');
@@ -173,8 +210,19 @@ async function runEndToEndDeliveryVerification() {
   console.log(`  - 成本折算: ¥${latest.estimatedCost.toFixed(6)}`);
   console.log(`  - 状态: ${latest.status} | 来源: ${latest.tokenSource}\n`);
 
-  // 8. 清理临时测试规程
-  console.log('▶ [步骤 8] 清理测试资产...');
+  // 8. 验证在线原子备份容灾接口
+  console.log('▶ [步骤 8] 验证超管在线 SQLite 原子备份与容灾恢复接口...');
+  const backupRes = await fetch(`${BASE_URL}/api/admin/backup`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${adminToken}` }
+  });
+  const backupData = await backupRes.json();
+  assert.equal(backupData.success, true);
+  assert.ok(backupData.backupPath && fs.existsSync(backupData.backupPath));
+  console.log(`✔ 在线热备份成功落盘: ${backupData.filename} (${backupData.timestamp})\n`);
+
+  // 9. 清理临时测试规程
+  console.log('▶ [步骤 9] 清理测试资产...');
   await fetch(`${BASE_URL}/api/knowledge/documents?id=EDU-PUBLIC-01_本科生免修与学分置换规定.txt`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${teacherToken}` } });
   await fetch(`${BASE_URL}/api/knowledge/documents?id=LAB-CONFIDENTIAL-02_超算集群多卡互联调度算法草案.txt`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${teacherToken}` } });
   console.log('✔ 测试资产注销完成。\n');
@@ -185,8 +233,9 @@ async function runEndToEndDeliveryVerification() {
   console.log('   2. 校园 LDAP 统一身份认证与 JIT 自动开通通过');
   console.log('   3. 组织多租户与课题组数据隔离校验通过');
   console.log('   4. 校园企业微信双向消息网关与多专家协同通过');
-  console.log('   5. 沙箱安全边界与 HITL 人工审批防线闭环通过');
+  console.log('   5. 沙箱安全边界与 HITL 人工审批防线闭环通过 (零绕过)');
   console.log('   6. 真实 Token 吞吐、延迟与财务级成本存证通过');
+  console.log('   7. 在线原子数据库备份与容灾机制验证通过');
   console.log('================================================================\n');
 }
 

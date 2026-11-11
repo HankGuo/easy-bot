@@ -17,6 +17,7 @@ import { IMEngine } from './core/im-engine.js';
 import { KnowledgeDropWatcher } from './core/knowledge-watcher.js';
 import { LDAPProvider } from './core/auth/ldap-provider.js';
 import { CryptoUtil, type JWTPayload } from './core/auth/crypto-util.js';
+import { RateLimiter } from './core/rate-limiter.js';
 
 // Security & Network Configuration
 // Default strictly to 127.0.0.1 (local loopback) to prevent unauthenticated LAN/WAN exposure
@@ -85,43 +86,30 @@ const screen = new ScreenPerceptionEngine(sandbox);
 const skills = new SkillLoader(SKILLS_DIR);
 const agentGroup = new AgentGroupCoordinator(sandbox, router, modelClient);
 const imEngine = new IMEngine(DATA_DIR, modelClient, sandbox, rag);
+const rateLimiter = new RateLimiter();
+setInterval(() => rateLimiter.cleanup(), 5 * 60 * 1000);
+
+// LDAP Provider: simulation disabled by default, enabled only when explicit
+const isLdapSimulated = process.env.LDAP_SIMULATION_MODE === 'true';
 const ldapProvider = new LDAPProvider({
-  simulationMode: true // Simulation mode enabled by default for air-gapped demo & tests
+  enabled: Boolean(process.env.LDAP_URL),
+  url: process.env.LDAP_URL || 'ldap://127.0.0.1:389',
+  searchBase: process.env.LDAP_SEARCH_BASE || 'dc=univ,dc=edu,dc=cn',
+  simulationMode: isLdapSimulated
 });
 
 // Seed Initial Campus & Enterprise Identity Hierarchy if fresh
 if (store.listUsers().length === 0) {
+  const initialAdminPass = process.env.EASYBOT_ADMIN_PASSWORD || crypto.randomBytes(16).toString('hex');
   const admin = store.createUser({
     id: 'usr_admin',
     username: 'admin',
-    passwordHash: CryptoUtil.hashPassword('admin123456'),
+    passwordHash: CryptoUtil.hashPassword(initialAdminPass),
     displayName: '系统管理员 (Super Admin)',
     email: 'admin@univ.edu.cn',
     role: 'superadmin',
     authSource: 'local',
     department: '信息化建设与网络安全中心'
-  });
-
-  const teacher = store.createUser({
-    id: 'usr_zhang',
-    username: 'prof_zhang',
-    passwordHash: CryptoUtil.hashPassword('prof123456'),
-    displayName: '张教授 (PI)',
-    email: 'zhang@cs.univ.edu.cn',
-    role: 'teacher_pi',
-    authSource: 'local',
-    department: '人工智能国家重点实验室'
-  });
-
-  const student = store.createUser({
-    id: 'usr_li',
-    username: 'stu_li',
-    passwordHash: CryptoUtil.hashPassword('stu123456'),
-    displayName: '李同学 (研究生)',
-    email: 'li@cs.univ.edu.cn',
-    role: 'student',
-    authSource: 'local',
-    department: '计算机科学与技术学院'
   });
 
   const gPublic = store.createGroup({
@@ -140,9 +128,6 @@ if (store.listUsers().length === 0) {
 
   store.addUserToGroup(admin.id, gPublic.id);
   store.addUserToGroup(admin.id, gLab.id);
-  store.addUserToGroup(teacher.id, gPublic.id);
-  store.addUserToGroup(teacher.id, gLab.id);
-  store.addUserToGroup(student.id, gPublic.id); // Student only in public group by default
 
   // Grant lab confidential knowledge to lab group only
   store.createResourceGrant({
@@ -152,9 +137,31 @@ if (store.listUsers().length === 0) {
     groupId: gLab.id,
     permission: 'read'
   });
+
+  const credPath = path.join(DATA_DIR, 'initial_admin.credentials');
+  try {
+    fs.writeFileSync(credPath, `# EasyBot Production Initial Credentials\n# Generated: ${new Date().toISOString()}\nUSERNAME=admin\nPASSWORD=${initialAdminPass}\n`, { mode: 0o600 });
+    console.log(`[SECURITY] Initial SuperAdmin created. Username: admin. Credentials securely saved to ${credPath} (chmod 0600)`);
+  } catch (err: any) {
+    console.warn('Failed to write credentials file:', err.message);
+  }
 }
 
-// Authentication Resolver: returns User or null
+// Security Hardening: Rotate known default password 'admin123456'
+const existingAdmin = store.getUserByUsername('admin');
+if (existingAdmin && existingAdmin.password_hash && CryptoUtil.verifyPassword('admin123456', existingAdmin.password_hash)) {
+  const newAdminPass = process.env.EASYBOT_ADMIN_PASSWORD || crypto.randomBytes(16).toString('hex');
+  store.updateUserPassword(existingAdmin.id, CryptoUtil.hashPassword(newAdminPass));
+  const credPath = path.join(DATA_DIR, 'initial_admin.credentials');
+  try {
+    fs.writeFileSync(credPath, `# EasyBot Production Hardened Credentials\n# Rotated: ${new Date().toISOString()}\nUSERNAME=admin\nPASSWORD=${newAdminPass}\n`, { mode: 0o600 });
+    console.log(`[SECURITY AUDIT] Vulnerable default password 'admin123456' rotated. Credentials saved to ${credPath} (chmod 0600)`);
+  } catch (err: any) {
+    console.warn('Failed to write credentials file:', err.message);
+  }
+}
+
+// Authentication Resolver: strictly verifies JWT or Master Token (no unauthenticated loopback bypass)
 function resolveUser(req: http.IncomingMessage, url: URL): JWTPayload | null {
   const authHeader = req.headers['authorization'];
   let token = '';
@@ -180,20 +187,24 @@ function resolveUser(req: http.IncomingMessage, url: URL): JWTPayload | null {
     if (jwt) return jwt;
   }
 
-  // Local loopback fallback for developer convenience on 127.0.0.1
-  const remoteIp = req.socket.remoteAddress;
-  if (HOST === '127.0.0.1' && isLoopback(remoteIp)) {
-    return {
-      userId: 'usr_loopback',
-      username: 'localhost_developer',
-      displayName: '本地开发者 (Local Loopback)',
-      role: 'superadmin',
-      authSource: 'loopback',
-      groups: ['grp_all', 'grp_ai_lab']
-    };
-  }
-
   return null;
+}
+
+// Server-Side RBAC Guard Helper
+function requireRole(res: http.ServerResponse, user: JWTPayload | undefined, allowedRoles: string[]): boolean {
+  if (!user) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Unauthorized: Authentication required.' }));
+    return false;
+  }
+  if (user.role === 'superadmin' || allowedRoles.includes(user.role)) {
+    return true;
+  }
+  res.writeHead(403, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({
+    error: `Forbidden: Operation requires one of roles [${allowedRoles.join(', ')}]. Current role: '${user.role}'`
+  }));
+  return false;
 }
 
 // Seed baseline real industrial & university knowledge assets
@@ -309,8 +320,16 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Unified Campus / Organization Login Endpoint
+  // Unified Campus / Organization Login Endpoint (Rate Limited: max 5 req/min per IP)
   if (url.pathname === '/api/auth/login' && req.method === 'POST') {
+    const clientIp = req.socket.remoteAddress || '127.0.0.1';
+    const rl = rateLimiter.check(`login:${clientIp}`, 5, 60000);
+    if (!rl.allowed) {
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': String(rl.retryAfterSeconds) });
+      res.end(JSON.stringify({ error: `Too many login attempts. Please retry after ${rl.retryAfterSeconds}s.` }));
+      return;
+    }
+
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
@@ -362,6 +381,9 @@ const server = http.createServer((req, res) => {
           return;
         }
 
+        // Reset rate limiter on successful login
+        rateLimiter.reset(`login:${clientIp}`);
+
         const userGroups = store.getUserGroupIds(user.id);
         const jwtPayload: JWTPayload = {
           userId: user.id,
@@ -395,29 +417,38 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Local-only admin token bootstrap endpoint
-  if (url.pathname === '/api/auth/token' && req.method === 'GET') {
-    if (!isLoopback(req.socket.remoteAddress)) {
-      res.writeHead(403, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Forbidden: Admin token can only be retrieved from local loopback.' }));
-      return;
-    }
+  // System Setup & Status Probe
+  if (url.pathname === '/api/auth/bootstrap' && req.method === 'GET') {
+    const credPath = path.join(DATA_DIR, 'initial_admin.credentials');
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ token: AUTH_TOKEN }));
+    res.end(JSON.stringify({
+      bootstrapped: true,
+      hasInitialCredentialsFile: fs.existsSync(credPath),
+      ldapConfigured: ldapProvider.getConfig().enabled || ldapProvider.getConfig().simulationMode
+    }));
     return;
   }
 
-  // Enforce authentication on all protected /api/* endpoints
-  if (url.pathname.startsWith('/api/')) {
-    const currentUser = resolveUser(req, url);
-    if (!currentUser) {
+  // Enforce server-side authentication on all protected /api/* endpoints
+  const isPublicPath =
+    url.pathname === '/api/health' ||
+    url.pathname === '/api/auth/login' ||
+    url.pathname === '/api/auth/bootstrap' ||
+    url.pathname === '/api/gateway/wecom/callback' ||
+    url.pathname === '/api/gateway/dingtalk/callback' ||
+    url.pathname.startsWith('/preview/') ||
+    !url.pathname.startsWith('/api/');
+
+  if (!isPublicPath) {
+    const resolved = resolveUser(req, url);
+    if (!resolved) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Unauthorized: Valid authentication token or LDAP login required.' }));
+      res.end(JSON.stringify({ error: 'Unauthorized: Valid authentication token or login required.' }));
       return;
     }
 
     // Attach user payload to request for downstream authorization
-    (req as any).user = currentUser;
+    (req as any).user = resolved;
   }
 
   const currentUser = (req as any).user as JWTPayload | undefined;
@@ -429,10 +460,48 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Organization & Multi-Tenancy Management Endpoints
+  // Organization & Multi-Tenancy Management Endpoints (RBAC Enforced)
   if (url.pathname === '/api/org/users' && req.method === 'GET') {
+    if (!requireRole(res, currentUser, ['superadmin', 'teacher_pi'])) return;
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(store.listUsers()));
+    return;
+  }
+
+  if (url.pathname === '/api/org/users' && req.method === 'POST') {
+    if (!requireRole(res, currentUser, ['superadmin'])) return;
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const { username, password, displayName, email, role, department, groups } = JSON.parse(body || '{}');
+        if (!username) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Username is required' }));
+          return;
+        }
+        const newUser = store.createUser({
+          id: 'usr_' + crypto.randomUUID().slice(0, 8),
+          username,
+          passwordHash: password ? CryptoUtil.hashPassword(password) : null,
+          displayName: displayName || username,
+          email,
+          role: role || 'student',
+          authSource: 'local',
+          department
+        });
+        if (Array.isArray(groups)) {
+          for (const gid of groups) {
+            store.addUserToGroup(newUser.id, gid);
+          }
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, user: newUser }));
+      } catch (err: any) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
     return;
   }
 
@@ -443,6 +512,7 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === '/api/org/groups' && req.method === 'POST') {
+    if (!requireRole(res, currentUser, ['superadmin'])) return;
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
@@ -460,6 +530,7 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === '/api/org/groups/members' && req.method === 'POST') {
+    if (!requireRole(res, currentUser, ['superadmin', 'teacher_pi'])) return;
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
@@ -476,23 +547,40 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // HITL (Human-in-the-Loop) Approval Endpoints
+  // HITL (Human-in-the-Loop) Approval Endpoints (SuperAdmin & Faculty Review Only)
   if (url.pathname === '/api/hitl/pending' && req.method === 'GET') {
+    if (!requireRole(res, currentUser, ['superadmin', 'teacher_pi'])) return;
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(store.listPendingHITLRequests()));
     return;
   }
 
   if (url.pathname === '/api/hitl/resolve' && req.method === 'POST') {
+    if (!requireRole(res, currentUser, ['superadmin', 'teacher_pi'])) return;
     let body = '';
     req.on('data', chunk => body += chunk);
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
         const { id, approved } = JSON.parse(body || '{}');
         const reviewerId = currentUser?.userId || 'admin';
-        const ok = store.resolveHITLRequest(id, reviewerId, Boolean(approved));
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: ok, id, status: approved ? 'approved' : 'rejected' }));
+        const pendingReq = store.getHITLRequestById(id);
+        if (!pendingReq) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `HITL Request ${id} not found` }));
+          return;
+        }
+
+        if (approved) {
+          // Execute the intercepted command safely on behalf of reviewer approval
+          const cmdResult = await sandbox.executeCommand(pendingReq.session_id, pendingReq.command, undefined, true);
+          store.resolveHITLRequest(id, reviewerId, true);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, id, status: 'approved', result: cmdResult }));
+        } else {
+          store.resolveHITLRequest(id, reviewerId, false);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, id, status: 'rejected' }));
+        }
       } catch (err: any) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: err.message }));
@@ -538,6 +626,7 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === '/api/model/config' && req.method === 'POST') {
+    if (!requireRole(res, currentUser, ['superadmin'])) return;
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
@@ -568,7 +657,7 @@ const server = http.createServer((req, res) => {
 
   if (url.pathname === '/api/sessions') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(router.listSessions()));
+    res.end(JSON.stringify(router.listSessions(currentUser?.userId, currentUser?.role)));
     return;
   }
 
@@ -603,12 +692,19 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === '/api/sandbox/execute' && req.method === 'POST') {
+    const rl = rateLimiter.check(`sandbox:${currentUser?.userId || req.socket.remoteAddress}`, 30, 60000);
+    if (!rl.allowed) {
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': String(rl.retryAfterSeconds) });
+      res.end(JSON.stringify({ error: `Sandbox rate limit exceeded. Retry in ${rl.retryAfterSeconds}s.` }));
+      return;
+    }
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
       try {
-        const { command, sessionId, bypassHITL } = JSON.parse(body);
-        const resExec = await sandbox.executeCommand(sessionId || 'default', command, undefined, Boolean(bypassHITL));
+        const { command, sessionId } = JSON.parse(body);
+        // Security rule: Client-side bypassHITL parameter is strictly rejected. Only authorized HITL resolution can bypass.
+        const resExec = await sandbox.executeCommand(sessionId || 'default', command, undefined, false);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(resExec));
       } catch (err: any) {
@@ -616,7 +712,7 @@ const server = http.createServer((req, res) => {
           // Record HITL approval request
           const reqItem = store.createHITLRequest({
             id: 'hitl_' + crypto.randomUUID().slice(0, 8),
-            sessionId: 'default',
+            sessionId: JSON.parse(body).sessionId || 'default',
             userId: currentUser?.userId || 'anonymous',
             command: JSON.parse(body).command,
             riskLevel: 'high',
@@ -667,7 +763,19 @@ const server = http.createServer((req, res) => {
           res.end(JSON.stringify({ error: 'filename and content are required' }));
           return;
         }
-        const result = dropWatcher.saveAndIndexFile(filename, content);
+
+        // Space & Group Isolation: Check write authorization for confidential lab spaces
+        if (spaceId && spaceId !== 'public') {
+          const isFacultyOrAdmin = currentUser?.role === 'superadmin' || currentUser?.role === 'teacher_pi';
+          const isGroupMember = ownerGroupId && currentUser?.groups ? currentUser.groups.includes(ownerGroupId) : false;
+          if (!isFacultyOrAdmin && !isGroupMember) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Forbidden: Insufficient privileges to upload into confidential space/group.' }));
+            return;
+          }
+        }
+
+        const result = dropWatcher.saveAndIndexFile(filename, content, spaceId || 'public', ownerGroupId);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, result, stats: rag.getStats() }));
       } catch (err: any) {
@@ -679,6 +787,7 @@ const server = http.createServer((req, res) => {
   }
 
   if ((url.pathname === '/api/knowledge/documents' || url.pathname.startsWith('/api/knowledge/documents/')) && req.method === 'DELETE') {
+    if (!requireRole(res, currentUser, ['superadmin', 'teacher_pi'])) return;
     const id = url.searchParams.get('id') || url.pathname.split('/').pop() || '';
     const success = dropWatcher.deleteFile(id) || rag.removeDocument(id);
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -693,6 +802,24 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Database Online Atomic Backup Endpoint (SuperAdmin Only)
+  if (url.pathname === '/api/admin/backup' && req.method === 'POST') {
+    if (!requireRole(res, currentUser, ['superadmin'])) return;
+    const backupName = `easybot_backup_${Date.now()}.db`;
+    const backupPath = path.join(DATA_DIR, 'backups', backupName);
+    if (!fs.existsSync(path.dirname(backupPath))) {
+      fs.mkdirSync(path.dirname(backupPath), { recursive: true });
+    }
+    store.backupDatabase(backupPath).then(() => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, backupPath, filename: backupName, timestamp: new Date().toISOString() }));
+    }).catch(err => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    });
+    return;
+  }
+
   // Telemetry Tracking
   if (url.pathname === '/api/telemetry/tokens' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -703,6 +830,7 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === '/api/telemetry/tokens' && req.method === 'DELETE') {
+    if (!requireRole(res, currentUser, ['superadmin'])) return;
     router.getModelClient().clearTelemetry();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true }));
@@ -932,9 +1060,10 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
         }
 
         case 'execute_sandbox_command': {
-          const { command, sessionId, bypassHITL } = payload || {};
+          const { command, sessionId } = payload || {};
           try {
-            const cmdRes = await sandbox.executeCommand(sessionId || 'default', command, undefined, Boolean(bypassHITL));
+            // Enforce false: WebSocket clients cannot bypass HITL approval
+            const cmdRes = await sandbox.executeCommand(sessionId || 'default', command, undefined, false);
             ws.send(JSON.stringify({ type: 'sandbox_command_executed', id, payload: cmdRes }));
           } catch (err: any) {
             if (err.message.startsWith('HITL_INTERCEPTED')) {

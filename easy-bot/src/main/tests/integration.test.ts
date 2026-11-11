@@ -382,3 +382,82 @@ test('16. IM Gateway Inbound Dispatch & Specialist Routing', async () => {
   fs.rmSync(tmpWs, { recursive: true, force: true });
   fs.rmSync(tmpData, { recursive: true, force: true });
 });
+
+test('17. Multi-Format Enterprise Knowledge Pipeline (Word & Excel Ingestion)', async () => {
+  const xlsx = await import('xlsx');
+  const rag = new HybridRAGEngine();
+
+  // 1. Generate real Excel workbook in memory
+  const wb = xlsx.utils.book_new();
+  const ws = xlsx.utils.aoa_to_sheet([
+    ['课程编号', '课程名称', '授课教师', '先修要求'],
+    ['CS-801', '异构张量计算与集群调度', '张教授', '线性代数与操作系统'],
+    ['CS-802', '大规模并行存储系统', '王教授', '计算机组成原理']
+  ]);
+  xlsx.utils.book_append_sheet(wb, ws, '培养计划');
+  const excelBuf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+  // 2. Index Excel document into Hybrid RAG
+  const chunks = await rag.addExcelDocument('doc_curriculum_xlsx', '2026研究生培养计划.xlsx', excelBuf, 300, 50, 'public');
+  assert.ok(chunks.length > 0);
+
+  // 3. Query specific tabular content
+  const searchResults = rag.query('异构张量计算 集群调度');
+  assert.ok(searchResults.length > 0);
+  assert.equal(searchResults[0].chunk.documentId, 'doc_curriculum_xlsx');
+  assert.ok(searchResults[0].chunk.content.includes('CS-801'));
+});
+
+test('18. Token Bucket Rate Limiter (Brute-Force & Abuse Defense)', async () => {
+  const { RateLimiter } = await import('../core/rate-limiter.js');
+  const limiter = new RateLimiter();
+  const testKey = 'test_ip_192_168_1_100';
+
+  // 5 requests allowed within 60 seconds
+  for (let i = 1; i <= 5; i++) {
+    const res = limiter.check(testKey, 5, 60000);
+    assert.equal(res.allowed, true);
+    assert.equal(res.remaining, 5 - i);
+  }
+
+  // 6th request is strictly blocked
+  const blocked = limiter.check(testKey, 5, 60000);
+  assert.equal(blocked.allowed, false);
+  assert.ok(blocked.retryAfterSeconds > 0);
+
+  // Reset allows immediate clearance
+  limiter.reset(testKey);
+  const cleared = limiter.check(testKey, 5, 60000);
+  assert.equal(cleared.allowed, true);
+});
+
+test('19. Online Atomic Database Backup & Disaster Recovery', async () => {
+  const { SessionStore } = await import('../core/session-store.js');
+  const Database = (await import('better-sqlite3')).default;
+  const tmpData = path.join(process.cwd(), 'tmp_test_backup_data');
+  const tmpBackup = path.join(process.cwd(), 'tmp_test_backup_target.db');
+
+  const store = new SessionStore(tmpData);
+  store.createUser({
+    id: 'usr_backup_test',
+    username: 'dr_tester',
+    passwordHash: null,
+    displayName: '容灾验证用户',
+    role: 'teacher_pi'
+  });
+
+  // Execute online backup
+  await store.backupDatabase(tmpBackup);
+  assert.ok(fs.existsSync(tmpBackup));
+
+  // Verify backup integrity
+  const backupDb = new Database(tmpBackup, { readonly: true });
+  const check: any = backupDb.pragma('integrity_check');
+  backupDb.close();
+
+  assert.equal(check.length, 1);
+  assert.equal(check[0].integrity_check, 'ok');
+
+  fs.rmSync(tmpData, { recursive: true, force: true });
+  fs.rmSync(tmpBackup, { force: true });
+});

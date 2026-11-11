@@ -74,7 +74,7 @@ export class KnowledgeDropWatcher {
       }
 
       const currentFiles = fs.readdirSync(this.watchDir).filter(f => !f.startsWith('.'));
-      const supportedExtensions = ['.txt', '.md', '.json', '.csv', '.log'];
+      const supportedExtensions = ['.txt', '.md', '.json', '.csv', '.log', '.pdf', '.docx', '.xlsx'];
 
       // 1. Check for removed files
       for (const [trackedFilename, docId] of this.fileDocIds.entries()) {
@@ -98,24 +98,35 @@ export class KnowledgeDropWatcher {
         }
 
         try {
-          const content = fs.readFileSync(fullPath, 'utf-8');
-          const hash = crypto.createHash('sha256').update(content).digest('hex');
+          const rawBuffer = fs.readFileSync(fullPath);
+          const hash = crypto.createHash('sha256').update(rawBuffer).digest('hex');
           const prevHash = this.fileHashes.get(filename);
           const docId = `drop-${path.parse(filename).name.replace(/[^a-zA-Z0-9_\u4e00-\u9fa5]/g, '_')}`;
 
-          if (!prevHash) {
-            // New file
-            this.rag.addDocument(docId, filename, content);
+          if (!prevHash || prevHash !== hash) {
+            if (prevHash) {
+              this.rag.removeDocument(docId);
+            }
+
+            if (ext === '.pdf') {
+              this.rag.addPdfDocument(docId, filename, rawBuffer);
+            } else if (ext === '.docx') {
+              this.rag.addWordDocument(docId, filename, rawBuffer);
+            } else if (ext === '.xlsx') {
+              this.rag.addExcelDocument(docId, filename, rawBuffer);
+            } else {
+              const content = rawBuffer.toString('utf-8');
+              this.rag.addDocument(docId, filename, content);
+            }
+
             this.fileHashes.set(filename, hash);
             this.fileDocIds.set(filename, docId);
-            added.push(filename);
-          } else if (prevHash !== hash) {
-            // Modified file
-            this.rag.removeDocument(docId);
-            this.rag.addDocument(docId, filename, content);
-            this.fileHashes.set(filename, hash);
-            this.fileDocIds.set(filename, docId);
-            updated.push(filename);
+
+            if (!prevHash) {
+              added.push(filename);
+            } else {
+              updated.push(filename);
+            }
           }
         } catch (e: any) {
           console.error(`[KnowledgeDropWatcher] Failed to process ${filename}:`, e.message);
@@ -155,12 +166,44 @@ export class KnowledgeDropWatcher {
     };
   }
 
-  public saveAndIndexFile(filename: string, content: string): { success: boolean; documentId: string } {
+  public saveAndIndexFile(
+    filename: string,
+    content: string | Buffer,
+    spaceId: string = 'public',
+    ownerGroupId?: string
+  ): { success: boolean; documentId: string } {
     const safeName = path.basename(filename);
     const targetPath = path.join(this.watchDir, safeName);
-    fs.writeFileSync(targetPath, content, 'utf-8');
-    this.sync();
-    const docId = this.fileDocIds.get(safeName) || `drop-${path.parse(safeName).name}`;
+    const ext = path.extname(safeName).toLowerCase();
+
+    if (Buffer.isBuffer(content)) {
+      fs.writeFileSync(targetPath, content);
+    } else if (typeof content === 'string') {
+      if (['.pdf', '.docx', '.xlsx'].includes(ext) && content.includes('base64,')) {
+        const base64Data = content.split('base64,').pop()!;
+        fs.writeFileSync(targetPath, Buffer.from(base64Data, 'base64'));
+      } else {
+        fs.writeFileSync(targetPath, content, 'utf-8');
+      }
+    }
+
+    const docId = `drop-${path.parse(safeName).name.replace(/[^a-zA-Z0-9_\u4e00-\u9fa5]/g, '_')}`;
+    const rawBuffer = fs.readFileSync(targetPath);
+
+    if (ext === '.pdf') {
+      this.rag.addPdfDocument(docId, safeName, rawBuffer, 300, 50, spaceId, ownerGroupId);
+    } else if (ext === '.docx') {
+      this.rag.addWordDocument(docId, safeName, rawBuffer, 300, 50, spaceId, ownerGroupId);
+    } else if (ext === '.xlsx') {
+      this.rag.addExcelDocument(docId, safeName, rawBuffer, 300, 50, spaceId, ownerGroupId);
+    } else {
+      this.rag.addDocument(docId, safeName, rawBuffer.toString('utf-8'), 300, 50, undefined, spaceId, ownerGroupId);
+    }
+
+    const hash = crypto.createHash('sha256').update(rawBuffer).digest('hex');
+    this.fileHashes.set(safeName, hash);
+    this.fileDocIds.set(safeName, docId);
+
     return { success: true, documentId: docId };
   }
 

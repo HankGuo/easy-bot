@@ -59,7 +59,12 @@ export class SandboxEngine {
         /\bmkfs\b/,                     // Block format
         /\bdd\s+if=/,                   // Block direct disk write
         /\/Library\/Application Support\/com\.apple\.TCC/, // Block TCC access
-        /~?\/\.(?:ssh|aws|gnupg)/        // Block credential theft
+        /~?\/\.(?:ssh|aws|gnupg)/,       // Block credential theft
+        /\b(nc|ncat|netcat|socat)\b/,   // Block reverse shell tools
+        /\/dev\/(?:tcp|udp)\//,         // Block raw socket shell redirect
+        /\b(sudo|su)\b/,                // Block privilege escalation
+        /\bchmod\s+([+]s|[0-7]?[421][0-7]{3})\b/, // Block SUID bit
+        /python[0-9.]*\s+-c\s+['"].*import\s+socket/ // Block python reverse socket
       ],
       hitlPatterns: [
         { pattern: /\brm\s+-rf\b/, riskLevel: 'high', reason: '批量递归删除文件，需导师/管理员确认' },
@@ -292,10 +297,11 @@ export class SandboxEngine {
       const child: ChildProcess = spawn('/bin/sh', ['-c', commandLine], {
         cwd: sessionDir,
         env: {
-          PATH: process.env.PATH,
+          PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
+          LANG: 'en_US.UTF-8',
+          NODE_ENV: 'production',
           EASYBOT_SANDBOX_SESSION: sessionId,
-          EASYBOT_WORKSPACE: sessionDir,
-          LANG: 'en_US.UTF-8'
+          EASYBOT_WORKSPACE: sessionDir
         }
       });
 

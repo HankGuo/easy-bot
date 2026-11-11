@@ -197,6 +197,62 @@ export class HybridRAGEngine {
   }
 
   /**
+   * Add a Microsoft Word (.docx) document buffer (extracts text via mammoth and indexes it)
+   */
+  public async addWordDocument(
+    documentId: string,
+    documentTitle: string,
+    docxBuffer: Buffer,
+    chunkSize: number = 300,
+    chunkOverlap: number = 50,
+    spaceId: string = 'public',
+    ownerGroupId?: string
+  ): Promise<DocumentChunk[]> {
+    try {
+      const mammoth = await import('mammoth');
+      const result = await mammoth.extractRawText({ buffer: docxBuffer });
+      const content = result.value || '';
+      return this.addDocument(documentId, documentTitle, content, chunkSize, chunkOverlap, undefined, spaceId, ownerGroupId);
+    } catch (err: any) {
+      console.warn(`[HybridRAG] Failed to parse Word document ${documentTitle}:`, err.message);
+      return this.addDocument(documentId, documentTitle, `[DOCX: ${documentTitle}]`, chunkSize, chunkOverlap, undefined, spaceId, ownerGroupId);
+    }
+  }
+
+  /**
+   * Add a Microsoft Excel (.xlsx/.csv) spreadsheet document buffer (extracts sheets to tabular text and indexes it)
+   */
+  public async addExcelDocument(
+    documentId: string,
+    documentTitle: string,
+    excelBuffer: Buffer,
+    chunkSize: number = 300,
+    chunkOverlap: number = 50,
+    spaceId: string = 'public',
+    ownerGroupId?: string
+  ): Promise<DocumentChunk[]> {
+    try {
+      const xlsx = await import('xlsx');
+      const workbook = xlsx.read(excelBuffer, { type: 'buffer' });
+      const sheetsContent: string[] = [];
+
+      for (const sheetName of workbook.SheetNames) {
+        const worksheet = workbook.Sheets[sheetName];
+        const csv = xlsx.utils.sheet_to_csv(worksheet);
+        if (csv.trim()) {
+          sheetsContent.push(`【工作表: ${sheetName}】\n${csv.trim()}`);
+        }
+      }
+
+      const content = sheetsContent.join('\n\n');
+      return this.addDocument(documentId, documentTitle, content, chunkSize, chunkOverlap, undefined, spaceId, ownerGroupId);
+    } catch (err: any) {
+      console.warn(`[HybridRAG] Failed to parse Excel document ${documentTitle}:`, err.message);
+      return this.addDocument(documentId, documentTitle, `[XLSX: ${documentTitle}]`, chunkSize, chunkOverlap, undefined, spaceId, ownerGroupId);
+    }
+  }
+
+  /**
    * Standard Okapi BM25 Scoring calculation for a query on accessible chunks
    */
   private scoreBM25(queryTokens: string[], candidateChunkIds: Set<string>): Map<string, { score: number; matches: string[] }> {

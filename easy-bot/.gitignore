@@ -16,3 +16,4 @@ workspace/
 # OS and logs
 .DS_Store
 *.log
+tmp_*

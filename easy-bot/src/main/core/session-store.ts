@@ -66,7 +66,8 @@ export class SessionStore {
         title TEXT NOT NULL,
         backend TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        workspace_path TEXT NOT NULL
+        workspace_path TEXT NOT NULL,
+        user_id TEXT DEFAULT 'usr_admin'
       );
 
       CREATE TABLE IF NOT EXISTS messages (
@@ -171,6 +172,15 @@ export class SessionStore {
         created_at TEXT NOT NULL
       );
     `);
+
+    // Schema migration: ensure sessions table has user_id
+    try {
+      const info = this.db.pragma('table_info(sessions)') as any[];
+      const hasUserId = info.some((col: any) => col.name === 'user_id');
+      if (!hasUserId) {
+        this.db.exec(`ALTER TABLE sessions ADD COLUMN user_id TEXT DEFAULT 'usr_admin';`);
+      }
+    } catch {}
   }
 
   // --- Telemetry Methods ---
@@ -229,16 +239,19 @@ export class SessionStore {
   }
 
   // --- Session & Audit Methods ---
-  public saveSession(session: { id: string; title: string; backend: string; createdAt: string; workspacePath: string }) {
+  public saveSession(session: { id: string; title: string; backend: string; createdAt: string; workspacePath: string; userId?: string }) {
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO sessions (id, title, backend, created_at, workspace_path)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO sessions (id, title, backend, created_at, workspace_path, user_id)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(session.id, session.title, session.backend, session.createdAt, session.workspacePath);
+    stmt.run(session.id, session.title, session.backend, session.createdAt, session.workspacePath, session.userId || 'usr_admin');
   }
 
-  public getSessions(): any[] {
-    return this.db.prepare('SELECT * FROM sessions ORDER BY created_at DESC').all();
+  public getSessions(userId?: string, role?: string): any[] {
+    if (role === 'superadmin' || !userId) {
+      return this.db.prepare('SELECT * FROM sessions ORDER BY created_at DESC').all();
+    }
+    return this.db.prepare('SELECT * FROM sessions WHERE user_id = ? ORDER BY created_at DESC').all(userId);
   }
 
   public saveAuditLog(log: any) {
@@ -289,6 +302,12 @@ export class SessionStore {
   public getUserByUsername(username: string): UserRow | null {
     const row = this.db.prepare('SELECT * FROM users WHERE username = ?').get(username);
     return (row as UserRow) || null;
+  }
+
+  public updateUserPassword(userId: string, passwordHash: string): boolean {
+    const now = new Date().toISOString();
+    const res = this.db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(passwordHash, now, userId);
+    return res.changes > 0;
   }
 
   public listUsers(): UserRow[] {
@@ -377,6 +396,25 @@ export class SessionStore {
 
   public listPendingHITLRequests(): HITLRequestRow[] {
     return this.db.prepare(`SELECT * FROM hitl_requests WHERE status = 'pending' ORDER BY created_at ASC`).all() as HITLRequestRow[];
+  }
+
+  public getHITLRequestById(id: string): HITLRequestRow | null {
+    const row = this.db.prepare('SELECT * FROM hitl_requests WHERE id = ?').get(id);
+    return (row as HITLRequestRow) || null;
+  }
+
+  public deleteUser(id: string): boolean {
+    const res = this.db.prepare('DELETE FROM users WHERE id = ?').run(id);
+    return res.changes > 0;
+  }
+
+  public deleteGroup(id: string): boolean {
+    const res = this.db.prepare('DELETE FROM user_groups WHERE id = ?').run(id);
+    return res.changes > 0;
+  }
+
+  public async backupDatabase(destinationFile: string): Promise<void> {
+    await this.db.backup(destinationFile);
   }
 
   public resolveHITLRequest(id: string, reviewerId: string, approved: boolean): boolean {
