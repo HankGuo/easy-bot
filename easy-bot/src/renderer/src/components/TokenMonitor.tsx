@@ -11,7 +11,8 @@ interface TokenRecord {
   latencyMs: number;
   estimatedCost: number;
   task: string;
-  status: 'success' | 'cached' | 'failed';
+  status: 'success' | 'cached' | 'failed' | 'simulated';
+  tokenSource?: 'upstream_exact' | 'estimated_heuristic';
 }
 
 export function TokenMonitor() {
@@ -200,7 +201,14 @@ export function TokenMonitor() {
                         </span>
                       </td>
                       <td className="py-4 px-6 font-mono text-slate-600">
-                        {r.promptTokens} / {r.completionTokens} / <strong className="text-slate-800">{r.totalTokens}</strong>
+                        <div className="flex items-center gap-1.5">
+                          <span>{r.promptTokens} / {r.completionTokens} / <strong className="text-slate-800">{r.totalTokens}</strong></span>
+                          {r.tokenSource === 'upstream_exact' ? (
+                            <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.2 rounded border border-emerald-200" title="上游大模型 API 真实返回的精确 Token 统计">精确</span>
+                          ) : (
+                            <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.2 rounded border border-slate-200" title="字符长度启发的估算值">估算</span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-4 px-6 font-mono text-slate-600">
                         {r.latencyMs} ms
@@ -209,10 +217,16 @@ export function TokenMonitor() {
                         ¥{r.estimatedCost.toFixed(5)}
                       </td>
                       <td className="py-4 px-6 text-right">
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          <CheckCircle2 className="w-3 h-3" />
-                          <span>成功</span>
-                        </span>
+                        {r.status === 'simulated' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                            <span>沙箱模拟</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>物理真实</span>
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}

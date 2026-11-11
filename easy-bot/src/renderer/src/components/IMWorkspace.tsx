@@ -288,17 +288,19 @@ export function IMWorkspace({ onSendMessage, onTestConnector, onSwitchTab }: IMW
           {/* Connectors bar */}
           <div className="p-3 border-t border-slate-200 bg-slate-50/50">
             <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1.5">
-              <span className="font-semibold text-slate-700">办公协同直连:</span>
-              <span className="text-emerald-700 font-medium font-mono text-[10px]">就绪</span>
+              <span className="font-semibold text-slate-700">办公协同通道:</span>
+              <span className="text-slate-500 font-mono text-[10px]">
+                {connectors.filter(c => c.status === 'connected').length} / {connectors.length} 激活
+              </span>
             </div>
             <div className="flex items-center gap-1.5 flex-wrap">
-              {connectors.slice(0, 3).map((conn) => (
+              {connectors.slice(0, 4).map((conn) => (
                 <span
                   key={conn.id}
-                  title={`${conn.name} (已连通)`}
+                  title={`${conn.name} (${conn.status === 'connected' ? '已连通' : '待配置'})`}
                   className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-white border border-slate-200 text-slate-700 flex items-center gap-1"
                 >
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  <span className={`w-1.5 h-1.5 rounded-full ${conn.status === 'connected' ? 'bg-emerald-500' : 'bg-slate-300'}`}></span>
                   {conn.type.toUpperCase()}
                 </span>
               ))}

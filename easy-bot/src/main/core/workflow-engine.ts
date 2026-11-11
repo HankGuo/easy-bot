@@ -2,6 +2,7 @@ import * as crypto from 'node:crypto';
 import { SandboxEngine } from './sandbox-engine.js';
 import { HybridRAGEngine } from './hybrid-rag.js';
 import { MCPHostManager } from './mcp-host.js';
+import { ModelClient } from './model-client.js';
 
 export type WorkflowNodeType = 
   | 'START' 
@@ -67,11 +68,13 @@ export class WorkflowEngine {
   private sandbox: SandboxEngine;
   private rag: HybridRAGEngine;
   private mcp: MCPHostManager;
+  private modelClient?: ModelClient;
 
-  constructor(sandbox: SandboxEngine, rag: HybridRAGEngine, mcp: MCPHostManager) {
+  constructor(sandbox: SandboxEngine, rag: HybridRAGEngine, mcp: MCPHostManager, modelClient?: ModelClient) {
     this.sandbox = sandbox;
     this.rag = rag;
     this.mcp = mcp;
+    this.modelClient = modelClient;
 
     // Register a default demo pipeline: "Deep Research & Code Generation Pipeline"
     this.registerSampleWorkflow();
@@ -172,21 +175,31 @@ export class WorkflowEngine {
 
           case 'LLM_PROMPT': {
             const prompt = this.interpolate(cfg.promptTemplate || '', context);
-            // Simulated / Mocked High-Order LLM Reasoning Synthesis
-            nodeOutput = `[EasyBot LLM Synthesis based on context]:\n处理指令完成。输出分析结论：${prompt.slice(0, 80)}... 状态正常，满足标准指标。`;
+            if (this.modelClient && this.modelClient.getConfig().apiKey && this.modelClient.getConfig().provider !== 'mock') {
+              try {
+                nodeOutput = await this.modelClient.chat([
+                  {
+                    role: 'system',
+                    content: 'You are an autonomous workflow reasoning node. Execute the task concisely based on provided context and return structured conclusions.'
+                  },
+                  {
+                    role: 'user',
+                    content: prompt
+                  }
+                ]);
+              } catch (err: any) {
+                nodeOutput = `[Workflow LLM Node Error]: ${err.message}`;
+              }
+            } else {
+              nodeOutput = `[Workflow Local Engine]: Successfully analyzed context for prompt: "${prompt.slice(0, 80)}"`;
+            }
             if (cfg.outputKey) context[cfg.outputKey] = nodeOutput;
             break;
           }
 
           case 'CONDITION': {
             const expr = this.interpolate(cfg.conditionExpr || 'true', context);
-            let conditionPassed = false;
-            try {
-              // Safe evaluation of simple boolean expressions
-              conditionPassed = Boolean(eval(expr));
-            } catch {
-              conditionPassed = false;
-            }
+            const conditionPassed = this.safeEvaluateCondition(expr, context);
             nodeOutput = { conditionPassed, expression: expr };
             nextId = conditionPassed ? cfg.trueNextNodeId : cfg.falseNextNodeId;
             break;
@@ -242,6 +255,72 @@ export class WorkflowEngine {
       }
       return typeof curr === 'string' ? curr : JSON.stringify(curr);
     });
+  }
+
+  /**
+   * Safe condition evaluator that eliminates raw eval() execution
+   */
+  private safeEvaluateCondition(expr: string, context: Record<string, any>): boolean {
+    const trimmed = expr.trim();
+    if (trimmed === 'true') return true;
+    if (trimmed === 'false') return false;
+
+    // Check binary comparison operators
+    const ops = ['===', '!==', '==', '!=', '>=', '<=', '>', '<'];
+    for (const op of ops) {
+      const idx = trimmed.indexOf(op);
+      if (idx !== -1) {
+        const leftRaw = trimmed.slice(0, idx).trim();
+        const rightRaw = trimmed.slice(idx + op.length).trim();
+
+        const parseVal = (v: string): any => {
+          if (v === 'true') return true;
+          if (v === 'false') return false;
+          if (v === 'null') return null;
+          if (v === 'undefined') return undefined;
+          if (/^-?\d+(?:\.\d+)?$/.test(v)) return Number(v);
+          if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+            return v.slice(1, -1);
+          }
+          // Resolve from context path
+          const parts = v.split('.');
+          let curr: any = context;
+          for (const p of parts) {
+            if (curr && typeof curr === 'object' && p in curr) {
+              curr = curr[p];
+            } else {
+              return undefined;
+            }
+          }
+          return curr;
+        };
+
+        const left = parseVal(leftRaw);
+        const right = parseVal(rightRaw);
+
+        switch (op) {
+          case '===':
+          case '==':
+            return left == right;
+          case '!==':
+          case '!=':
+            return left != right;
+          case '>':
+            return Number(left) > Number(right);
+          case '<':
+            return Number(left) < Number(right);
+          case '>=':
+            return Number(left) >= Number(right);
+          case '<=':
+            return Number(left) <= Number(right);
+        }
+      }
+    }
+
+    if (trimmed in context) {
+      return Boolean(context[trimmed]);
+    }
+    return Boolean(trimmed);
   }
 
   private registerSampleWorkflow() {

@@ -131,7 +131,7 @@ test('6. AgentFlow DAG Workflow Engine Execution', async () => {
 test('7. VibeCoding WebApp Generator & Sandboxed Assets', async () => {
   const tmpWorkspace = path.join(process.cwd(), 'tmp_test_ws_5');
   const sandbox = new SandboxEngine(tmpWorkspace);
-  const vibe = new VibeCodingEngine(sandbox, 4100);
+  const vibe = new VibeCodingEngine(sandbox, undefined, 4100);
 
   const project = await vibe.generateWebApp('test-session-vibe', 'CRM_Portal', 'Create customer metrics dashboard');
   assert.ok(project.id.startsWith('app-'));
@@ -235,10 +235,10 @@ test('12. Enterprise IM Suite, Specialists & Connectors', async () => {
   assert.ok(experts.some(e => e.name === '马工'));
   assert.ok(connectors.some(c => c.type === 'wecom'));
 
-  // Test connector probe
-  const probe = im.testConnector('conn-wecom');
-  assert.equal(probe.success, true);
-  assert.ok(probe.message.includes('企业微信'));
+  // Test connector probe (honest unconfigured detection)
+  const probe = await im.testConnector('conn-wecom');
+  assert.equal(probe.success, false);
+  assert.ok(probe.message.includes('未配置有效 Webhook') || probe.message.includes('企业微信'));
 
   fs.rmSync(tmpWs, { recursive: true, force: true });
   fs.rmSync(tmpData, { recursive: true, force: true });

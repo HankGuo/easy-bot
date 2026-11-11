@@ -5,6 +5,9 @@ export interface ModelConfig {
   model: string;
   temperature?: number;
   maxTokens?: number;
+  embeddingBaseUrl?: string;
+  embeddingApiKey?: string;
+  embeddingModel?: string;
 }
 
 export interface ChatCompletionMessage {
@@ -32,7 +35,8 @@ export interface TelemetryRecord {
   latencyMs: number;
   estimatedCost: number;
   task: string;
-  status: 'success' | 'failed' | 'cached';
+  status: 'success' | 'failed' | 'cached' | 'simulated';
+  tokenSource: 'upstream_exact' | 'estimated_heuristic';
 }
 
 /**
@@ -52,6 +56,9 @@ export class ModelClient {
       model: process.env.OPENAI_MODEL || 'default-chat-model',
       temperature: 0.7,
       maxTokens: 4096,
+      embeddingBaseUrl: process.env.OPENAI_EMBEDDING_BASE_URL,
+      embeddingApiKey: process.env.OPENAI_EMBEDDING_API_KEY,
+      embeddingModel: process.env.OPENAI_EMBEDDING_MODEL,
       ...initialConfig
     };
   }
@@ -60,23 +67,83 @@ export class ModelClient {
     return { ...this.config };
   }
 
-  public getMaskedConfig(): Omit<ModelConfig, 'apiKey'> & { apiKeyMasked: string; hasKey: boolean } {
+  public getMaskedConfig(): Omit<ModelConfig, 'apiKey' | 'embeddingApiKey'> & { apiKeyMasked: string; hasKey: boolean; embeddingKeyMasked?: string; hasEmbeddingKey: boolean } {
     const key = this.config.apiKey;
     const masked = key.length > 8 ? `${key.slice(0, 4)}...${key.slice(-4)}` : (key ? '****' : '');
+    const embKey = this.config.embeddingApiKey || '';
+    const embMasked = embKey.length > 8 ? `${embKey.slice(0, 4)}...${embKey.slice(-4)}` : (embKey ? '****' : '');
     return {
       provider: this.config.provider,
       baseUrl: this.config.baseUrl,
       model: this.config.model,
       temperature: this.config.temperature,
       maxTokens: this.config.maxTokens,
+      embeddingBaseUrl: this.config.embeddingBaseUrl,
+      embeddingModel: this.config.embeddingModel,
       apiKeyMasked: masked,
-      hasKey: Boolean(key)
+      hasKey: Boolean(key),
+      embeddingKeyMasked: embMasked,
+      hasEmbeddingKey: Boolean(embKey)
     };
   }
 
   public updateConfig(patch: Partial<ModelConfig>): ModelConfig {
     this.config = { ...this.config, ...patch };
     return this.getConfig();
+  }
+
+  public hasEmbeddingConfig(): boolean {
+    return Boolean(this.config.embeddingModel);
+  }
+
+  /**
+   * Generates true vector embeddings via OpenAI-compatible /v1/embeddings API
+   */
+  public async createEmbeddings(texts: string[]): Promise<number[][] | null> {
+    const embModel = this.config.embeddingModel;
+    if (!embModel || texts.length === 0) return null;
+
+    const cleanBase = (this.config.embeddingBaseUrl || this.config.baseUrl).replace(/\/+$/, '');
+    const apiKey = this.config.embeddingApiKey || this.config.apiKey;
+    const url = `${cleanBase}/embeddings`;
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {})
+        },
+        body: JSON.stringify({
+          model: embModel,
+          input: texts
+        }),
+        signal: AbortSignal.timeout(30000)
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.warn(`[Embedding API Warning] HTTP ${res.status}: ${errText.slice(0, 200)}`);
+        return null;
+      }
+
+      const json: any = await res.json();
+      if (Array.isArray(json.data)) {
+        return json.data.map((item: any) => item.embedding);
+      }
+      return null;
+    } catch (err: any) {
+      console.warn(`[Embedding API Error]: ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Helper for non-streaming chat completions
+   */
+  public async chat(messages: ChatCompletionMessage[]): Promise<string> {
+    const res = await this.streamChat(messages, undefined, undefined);
+    return res.content;
   }
 
   /**
@@ -169,7 +236,8 @@ export class ModelClient {
         latencyMs: Date.now() - startTime,
         estimatedCost: 0,
         task: userPrompt.slice(0, 30) || '离线沙箱执行',
-        status: 'cached'
+        status: 'simulated',
+        tokenSource: 'estimated_heuristic'
       });
       return res;
     }
@@ -197,7 +265,8 @@ export class ModelClient {
       })),
       temperature: this.config.temperature,
       max_tokens: this.config.maxTokens,
-      stream: true
+      stream: true,
+      stream_options: { include_usage: true }
     };
 
     if (formattedTools && formattedTools.length > 0) {
@@ -222,6 +291,7 @@ export class ModelClient {
     if (!res.body) throw new Error('Response body is empty');
 
     let fullContent = '';
+    let upstreamUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null;
     const pendingToolCalls: Map<number, { id: string; name: string; argsJson: string }> = new Map();
 
     const reader = res.body.getReader();
@@ -243,6 +313,10 @@ export class ModelClient {
 
         try {
           const json = JSON.parse(trimmed.replace(/^data:\s*/, ''));
+          if (json.usage) {
+            upstreamUsage = json.usage;
+          }
+
           const delta = json.choices?.[0]?.delta;
           if (!delta) continue;
 
@@ -285,11 +359,25 @@ export class ModelClient {
     });
 
     const durationMs = Date.now() - startTime;
-    const promptLen = messages.reduce((acc, m) => acc + (m.content?.length || 0), 0);
-    const promptTokens = Math.max(1, Math.round(promptLen / 2));
-    const completionTokens = Math.max(1, Math.round(fullContent.length / 2));
-    const totalTokens = promptTokens + completionTokens;
-    const estimatedCost = (promptTokens * 0.0000015) + (completionTokens * 0.0000025);
+    let promptTokens: number;
+    let completionTokens: number;
+    let totalTokens: number;
+    let tokenSource: 'upstream_exact' | 'estimated_heuristic';
+
+    if (upstreamUsage && typeof upstreamUsage.prompt_tokens === 'number') {
+      promptTokens = upstreamUsage.prompt_tokens;
+      completionTokens = upstreamUsage.completion_tokens ?? Math.max(1, Math.round(fullContent.length / 2));
+      totalTokens = upstreamUsage.total_tokens ?? (promptTokens + completionTokens);
+      tokenSource = 'upstream_exact';
+    } else {
+      const promptLen = messages.reduce((acc, m) => acc + (m.content?.length || 0), 0);
+      promptTokens = Math.max(1, Math.round(promptLen / 2));
+      completionTokens = Math.max(1, Math.round(fullContent.length / 2));
+      totalTokens = promptTokens + completionTokens;
+      tokenSource = 'estimated_heuristic';
+    }
+
+    const estimatedCost = Number(((promptTokens * 0.0000015) + (completionTokens * 0.0000025)).toFixed(6));
     const taskName = (messages[messages.length - 1]?.content || '智能体推理').slice(0, 35);
 
     this.recordTelemetry({
@@ -302,7 +390,8 @@ export class ModelClient {
       latencyMs: durationMs,
       estimatedCost,
       task: taskName,
-      status: 'success'
+      status: 'success',
+      tokenSource
     });
 
     return {

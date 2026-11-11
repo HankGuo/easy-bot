@@ -70,13 +70,14 @@ const sandbox = new SandboxEngine(WORKSPACE_ROOT);
 const rag = new HybridRAGEngine();
 const mcp = new MCPHostManager();
 const router = new AgentRouter(sandbox, rag, mcp);
+const modelClient = router.getModelClient();
 const store = new SessionStore(DATA_DIR);
-const workflow = new WorkflowEngine(sandbox, rag, mcp);
-const vibecoding = new VibeCodingEngine(sandbox, PORT);
+const workflow = new WorkflowEngine(sandbox, rag, mcp, modelClient);
+const vibecoding = new VibeCodingEngine(sandbox, modelClient, PORT);
 const screen = new ScreenPerceptionEngine(sandbox);
 const skills = new SkillLoader(SKILLS_DIR);
-const agentGroup = new AgentGroupCoordinator(sandbox, router);
-const imEngine = new IMEngine(DATA_DIR, router.getModelClient(), sandbox, rag);
+const agentGroup = new AgentGroupCoordinator(sandbox, router, modelClient);
+const imEngine = new IMEngine(DATA_DIR, modelClient, sandbox, rag);
 
 // Seed baseline real industrial knowledge assets into drop-folder if empty
 if (!fs.existsSync(DROP_DIR)) {
@@ -454,10 +455,10 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/api/im/connectors/test' && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => body += chunk);
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
         const { connectorId } = JSON.parse(body);
-        const result = imEngine.testConnector(connectorId);
+        const result = await imEngine.testConnector(connectorId);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
       } catch (err: any) {
@@ -716,7 +717,7 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
 
         case 'im_test_connector': {
           const { connectorId } = payload || {};
-          const testRes = imEngine.testConnector(connectorId);
+          const testRes = await imEngine.testConnector(connectorId);
           ws.send(JSON.stringify({ type: 'im_connector_tested', id, payload: testRes }));
           break;
         }

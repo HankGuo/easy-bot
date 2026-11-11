@@ -229,82 +229,82 @@ export class IMEngine {
         name: '企业微信 (WeCom) 群机器人与消息应用',
         type: 'wecom',
         description: '支持将 Agent 决策与报警推送到企业微信群，支持通过 Webhook 回调接收外部指令。',
-        status: 'connected',
+        status: 'unconfigured',
         config: {
-          webhookUrl: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=mock-wecom-demo-key',
+          webhookUrl: '',
           pushEvents: ['agent_result', 'security_blocked', 'workflow_completed'],
-          autoReply: true
+          autoReply: false
         },
-        lastSync: '刚刚',
-        stats: { totalDispatched: 142, successRate: 100 }
+        lastSync: '待配置',
+        stats: { totalDispatched: 0, successRate: 100 }
       },
       {
         id: 'conn-dingtalk',
         name: '钉钉 (DingTalk) 自建机器人连接器',
         type: 'dingtalk',
         description: '支持钉钉群聊智能互动卡片 (ActionCard)、Markdown 消息与待办审批推送。',
-        status: 'connected',
+        status: 'unconfigured',
         config: {
-          webhookUrl: 'https://oapi.dingtalk.com/robot/send?access_token=mock-dingtalk-key',
-          secret: 'SEC-demo-secret'
+          webhookUrl: '',
+          secret: ''
         },
-        lastSync: '10分钟前',
-        stats: { totalDispatched: 98, successRate: 99.1 }
+        lastSync: '待配置',
+        stats: { totalDispatched: 0, successRate: 100 }
       },
       {
         id: 'conn-feishu',
         name: '飞书 (Feishu / Lark) 应用互动卡片',
         type: 'feishu',
         description: '支持飞书开放平台事件订阅、高交互富文本卡片 (Interactive Card) 与多维表格同步。',
-        status: 'connected',
+        status: 'unconfigured',
         config: {
-          appId: 'cli_easybot_feishu_demo',
-          webhookUrl: 'https://open.feishu.cn/open-apis/bot/v2/hook/mock-feishu-key'
+          appId: '',
+          webhookUrl: ''
         },
-        lastSync: '5分钟前',
-        stats: { totalDispatched: 215, successRate: 100 }
+        lastSync: '待配置',
+        stats: { totalDispatched: 0, successRate: 100 }
       },
       {
         id: 'conn-github',
         name: 'GitHub 仓库与 PR 自动化评审',
         type: 'github',
         description: '自动监听 GitHub Webhook，拉取 PR 代码变更并由沙箱专家进行代码质量与安全审计。',
-        status: 'connected',
+        status: 'unconfigured',
         config: {
-          repo: 'enterprise/easy-bot',
-          autoReviewPR: true,
-          token: 'ghp_••••••••••••••••••••••••'
+          repo: '',
+          autoReviewPR: false,
+          token: ''
         },
-        lastSync: '3分钟前',
-        stats: { totalDispatched: 64, successRate: 98.4 }
+        lastSync: '待配置',
+        stats: { totalDispatched: 0, successRate: 100 }
       },
       {
         id: 'conn-db',
         name: 'PostgreSQL / MySQL 生产只读数据库',
         type: 'database',
         description: '连接企业内部关系型数据库，支持自然语言转 SQL、安全只读分析与 Schema 索引推荐。',
-        status: 'connected',
+        status: 'unconfigured',
         config: {
-          host: '127.0.0.1',
+          host: '',
           port: 5432,
-          database: 'easybot_analytics',
+          database: '',
           readOnly: true
         },
-        lastSync: '实时连通',
-        stats: { totalDispatched: 320, successRate: 100 }
+        lastSync: '待配置',
+        stats: { totalDispatched: 0, successRate: 100 }
       },
       {
         id: 'conn-webhook',
         name: '通用 HTTP REST Webhook 管道',
         type: 'webhook',
         description: '向企业 OA、ERP、CRM 或自建微服务中转站即时转发经过沙箱验真后的结构化数据。',
-        status: 'connected',
+        status: 'unconfigured',
         config: {
-          endpoint: 'http://127.0.0.1:4100/api/webhook/relay',
-          authHeader: 'Bearer easybot-token'
+          endpoint: '',
+          authHeader: ''
         },
-        lastSync: '实时就绪',
-        stats: { totalDispatched: 512, successRate: 100 }
+        lastSync: '待配置',
+        stats: { totalDispatched: 0, successRate: 100 }
       }
     ];
 
@@ -492,19 +492,67 @@ export class IMEngine {
     return { userMessage: userMsg, expertMessage: expertMsg };
   }
 
-  public testConnector(connectorId: string): { success: boolean; latencyMs: number; message: string } {
+  public async testConnector(connectorId: string): Promise<{ success: boolean; latencyMs: number; message: string }> {
     const conn = this.connectors.get(connectorId);
     if (!conn) throw new Error(`Connector ${connectorId} not found`);
 
-    conn.lastSync = '刚刚';
-    conn.status = 'connected';
-    conn.stats.totalDispatched += 1;
-    this.saveToDisk();
+    const webhookUrl = (conn.config?.webhookUrl || conn.config?.endpoint || '').trim();
 
-    return {
-      success: true,
-      latencyMs: Math.floor(Math.random() * 40) + 20,
-      message: `[${conn.name}] 握手成功，Webhook 回调通道与鉴权凭证验证通过！`
-    };
+    if (!webhookUrl || webhookUrl.startsWith('mock-') || webhookUrl.includes('••••')) {
+      conn.status = 'unconfigured';
+      this.saveToDisk();
+      return {
+        success: false,
+        latencyMs: 0,
+        message: `[${conn.name}] 未配置有效 Webhook URL，请在设置中输入真实的群机器人 Webhook 地址。`
+      };
+    }
+
+    const startTime = Date.now();
+    try {
+      const testPayload = conn.type === 'wecom'
+        ? { msgtype: 'text', text: { content: '[EasyBot 探针] 连通性测试消息：系统已成功连通。' } }
+        : conn.type === 'dingtalk'
+        ? { msgtype: 'text', text: { content: '[EasyBot 探针] 连通性测试消息：系统已成功连通。' } }
+        : conn.type === 'feishu'
+        ? { msg_type: 'text', content: { text: '[EasyBot 探针] 连通性测试消息：系统已成功连通。' } }
+        : { event: 'ping', timestamp: new Date().toISOString() };
+
+      const res = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(testPayload),
+        signal: AbortSignal.timeout(10000)
+      });
+
+      const latencyMs = Date.now() - startTime;
+      if (res.ok) {
+        conn.status = 'connected';
+        conn.lastSync = '刚刚';
+        conn.stats.totalDispatched += 1;
+        this.saveToDisk();
+        return {
+          success: true,
+          latencyMs,
+          message: `[${conn.name}] 握手成功，远程端点返回 HTTP ${res.status} (真实往返时延 ${latencyMs}ms)`
+        };
+      } else {
+        conn.status = 'error';
+        this.saveToDisk();
+        return {
+          success: false,
+          latencyMs,
+          message: `[${conn.name}] 远程服务器返回 HTTP ${res.status} 错误`
+        };
+      }
+    } catch (err: any) {
+      conn.status = 'error';
+      this.saveToDisk();
+      return {
+        success: false,
+        latencyMs: Date.now() - startTime,
+        message: `[${conn.name}] 连接探测失败: ${err.message}`
+      };
+    }
   }
 }
