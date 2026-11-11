@@ -21,14 +21,14 @@ async function runEndToEndDeliveryVerification() {
   const testConfig = await testConfigRes.json();
   console.log(`✔ 运行期模型接入点配置完成: ${testConfig.config?.baseUrl} | 模型: ${testConfig.config?.model} | Key掩码: ${testConfig.config?.apiKeyMasked}\n`);
 
-  // 1. 验证系统健康与底层 DeepSeek Harness 运行时
-  console.log('▶ [步骤 1] 校验核心服务状态与 DeepSeek Harness 底座...');
+  // 1. 验证系统健康与底层运行时
+  console.log('▶ [步骤 1] 校验核心服务状态与网络安全配置...');
   const healthRes = await fetch(`${BASE_URL}/api/health`);
   const health = await healthRes.json();
-  if (health.status !== 'ok' || health.engine !== 'DeepSeek Harness (@deepseek-ai/dsh)') {
+  if (health.status !== 'ok') {
     throw new Error(`服务状态异常: ${JSON.stringify(health)}`);
   }
-  console.log(`✔ 服务运行正常: ${health.name} v${health.version} | 执行引擎: ${health.engine}\n`);
+  console.log(`✔ 服务运行正常: ${health.name} v${health.version} | 运行架构: ${health.engine} | 绑定地址: ${health.host}:${health.port}\n`);
 
   // 2. 测试自服务知识库热插拔上传插槽
   console.log('▶ [步骤 2] 测试自服务知识资产上传插槽 (POST /api/knowledge/upload)...');

@@ -1,41 +1,51 @@
 import * as child_process from 'node:child_process';
-import * as path from 'node:path';
-import * as fs from 'node:fs';
 import { SandboxEngine } from './sandbox-engine.js';
 import { HybridRAGEngine } from './hybrid-rag.js';
 import { MCPHostManager } from './mcp-host.js';
 import { ToolCallEvent, ToolResultEvent } from './agent-router.js';
 
-export interface DSHEngineConfig {
-  profile?: string;
-  enableCordisPlugins?: boolean;
-  maxRounds?: number;
-  timeoutMs?: number;
-}
-
 export interface DSHTaskResult {
-  engine: 'DeepSeekHarness';
+  engine: string;
   version: string;
   success: boolean;
   output: string;
   toolCallsExecuted: number;
   durationMs: number;
+  error?: string;
 }
 
 /**
- * DeepSeek Harness Industrial Engine Adapter
- * Integrates @deepseek-ai/dsh and Cordis plugin framework into EasyBot
+ * DeepSeek Harness Adapter & Native Engine Status
+ * 
+ * DESIGN RATIONALE:
+ * This adapter provides optional connectivity to DeepSeek Harness CLI (`dsh`) if installed
+ * in the host environment. If not installed, it honestly reports `dshInstalled: false`
+ * rather than fabricating a simulated active state.
  */
 export class DSHEngineAdapter {
   private sandbox: SandboxEngine;
   private rag: HybridRAGEngine;
   private mcp: MCPHostManager;
   private version: string = '0.2.2-rc.1';
+  private isDshAvailable: boolean = false;
 
   constructor(sandbox: SandboxEngine, rag: HybridRAGEngine, mcp: MCPHostManager) {
     this.sandbox = sandbox;
     this.rag = rag;
     this.mcp = mcp;
+    this.checkDshAvailability();
+  }
+
+  private checkDshAvailability() {
+    try {
+      const res = child_process.spawnSync('npx', ['--no-install', 'dsh', '--version'], {
+        timeout: 3000,
+        encoding: 'utf-8'
+      });
+      this.isDshAvailable = res.status === 0;
+    } catch {
+      this.isDshAvailable = false;
+    }
   }
 
   public getVersion(): string {
@@ -44,24 +54,16 @@ export class DSHEngineAdapter {
 
   public getStatus() {
     return {
-      engine: 'DeepSeek Harness (@deepseek-ai/dsh)',
-      version: this.version,
-      license: 'MIT',
-      framework: 'Cordis v4.1 Spatiotemporal Plugin Architecture',
-      plugins: [
-        '@deepseek-ai/dsh-base',
-        '@deepseek-ai/dsh-tool-fs',
-        '@deepseek-ai/dsh-tool-bash',
-        '@deepseek-ai/dsh-mcp-client',
-        'easybot-sandbox-jail-plugin',
-        'easybot-enterprise-rag-plugin'
-      ],
+      engine: 'EasyBot Autonomous Agent Host (TypeScript Core)',
+      dshPackage: '@deepseek-ai/dsh',
+      dshCliInstalled: this.isDshAvailable,
+      runtimeArchitecture: 'Native Event-Driven Agent Loop',
       active: true
     };
   }
 
   /**
-   * Dispatches task through DeepSeek Harness headless runner or Cordis ReAct loop
+   * Dispatches task through DeepSeek Harness CLI if installed, or falls back to native execution
    */
   public async executeTask(
     sessionId: string,
@@ -75,18 +77,12 @@ export class DSHEngineAdapter {
     const t0 = Date.now();
     const workspace = this.sandbox.getSessionWorkspace(sessionId);
 
-    // Provide immediate streaming confirmation that DeepSeek Harness core is engaged
-    if (onChunk) {
-      onChunk(`[DeepSeek Harness Engine · Cordis Core 启动]\n`);
-    }
-
-    try {
-      // 1. Try running via DSH headless CLI runner if available
+    if (this.isDshAvailable) {
       const cliResult = await this.tryRunDSHCLI(prompt, workspace);
       if (cliResult) {
         if (onChunk) onChunk(cliResult);
         return {
-          engine: 'DeepSeekHarness',
+          engine: 'DeepSeekHarness-CLI',
           version: this.version,
           success: true,
           output: cliResult,
@@ -94,13 +90,11 @@ export class DSHEngineAdapter {
           durationMs: Date.now() - t0
         };
       }
-    } catch (err: any) {
-      console.warn('[DSH] CLI execution bypassed, utilizing Cordis ReAct programmatic runtime:', err.message);
     }
 
-    // 2. Programmatic ReAct loop following DeepSeek Harness spatiotemporal step lifecycle
+    // Native fallback
     return {
-      engine: 'DeepSeekHarness',
+      engine: 'EasyBot-Native-Runtime',
       version: this.version,
       success: true,
       output: '',
@@ -111,7 +105,6 @@ export class DSHEngineAdapter {
 
   private async tryRunDSHCLI(prompt: string, workspace: string): Promise<string | null> {
     return new Promise((resolve) => {
-      // Guard against blocking: run dsh with strict 8s timeout
       const child = child_process.spawn('npx', ['dsh', 'headless', prompt.slice(0, 100)], {
         cwd: workspace,
         env: { ...process.env, CI: 'true', DSH_NON_INTERACTIVE: '1' },

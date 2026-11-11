@@ -1,6 +1,7 @@
 import * as http from 'node:http';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import * as crypto from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { SandboxEngine } from './core/sandbox-engine.js';
 import { HybridRAGEngine } from './core/hybrid-rag.js';
@@ -15,11 +16,54 @@ import { AgentGroupCoordinator } from './core/agent-group.js';
 import { IMEngine } from './core/im-engine.js';
 import { KnowledgeDropWatcher } from './core/knowledge-watcher.js';
 
+// Security & Network Configuration
+// Default strictly to 127.0.0.1 (local loopback) to prevent unauthenticated LAN/WAN exposure
+const HOST = process.env.EASYBOT_HOST || '127.0.0.1';
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 4100;
 const WORKSPACE_ROOT = path.resolve(process.env.EASYBOT_WORKSPACE || path.join(process.cwd(), 'workspace'));
 const DATA_DIR = path.resolve(process.env.EASYBOT_DATA || path.join(process.cwd(), '.easybot_data'));
 const SKILLS_DIR = path.resolve(process.env.EASYBOT_SKILLS || path.join(process.cwd(), 'skills'));
 const DROP_DIR = path.resolve(process.env.EASYBOT_KNOWLEDGE_DROP || path.join(process.cwd(), 'knowledge_drop'));
+
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+// Persistent Security Admin Token
+const TOKEN_FILE = path.join(DATA_DIR, 'admin_token.key');
+let AUTH_TOKEN = process.env.EASYBOT_AUTH_TOKEN || '';
+if (!AUTH_TOKEN) {
+  if (fs.existsSync(TOKEN_FILE)) {
+    AUTH_TOKEN = fs.readFileSync(TOKEN_FILE, 'utf-8').trim();
+  } else {
+    AUTH_TOKEN = crypto.randomBytes(24).toString('hex');
+    fs.writeFileSync(TOKEN_FILE, AUTH_TOKEN, 'utf-8');
+  }
+}
+
+function isLoopback(ip?: string): boolean {
+  if (!ip) return false;
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
+
+function checkAuthorization(req: http.IncomingMessage, url: URL): boolean {
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const bearer = authHeader.slice(7).trim();
+    if (bearer === AUTH_TOKEN) return true;
+  }
+
+  const queryToken = url.searchParams.get('token');
+  if (queryToken && queryToken === AUTH_TOKEN) return true;
+
+  // If bound strictly to 127.0.0.1, permit requests originating from loopback
+  const remoteIp = req.socket.remoteAddress;
+  if (HOST === '127.0.0.1' && isLoopback(remoteIp)) {
+    return true;
+  }
+
+  return false;
+}
 
 // Initialize Enterprise Core Subsystems
 const sandbox = new SandboxEngine(WORKSPACE_ROOT);
@@ -85,9 +129,21 @@ dropWatcher.start();
 
 // Create HTTP server for REST, WebSocket & VibeCoding sandboxed preview
 const server = http.createServer((req, res) => {
-  // Enable CORS
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  // CORS: Restrict to localhost/loopback or same host instead of universal wildcard
+  const origin = req.headers.origin;
+  if (origin) {
+    try {
+      const parsedOrigin = new URL(origin);
+      if (parsedOrigin.hostname === 'localhost' || parsedOrigin.hostname === '127.0.0.1' || parsedOrigin.hostname === HOST) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+      }
+    } catch {
+      // ignore malformed origin
+    }
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', `http://127.0.0.1:${PORT}`);
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
@@ -96,7 +152,43 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const url = new URL(req.url || '/', `http://${req.headers.host}`);
+  const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
+
+  // Public Health & Security Status Endpoint
+  if (url.pathname === '/api/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'ok',
+      name: 'EasyBot Core',
+      version: '2.1.0-secure',
+      engine: 'EasyBot Native Agent Engine',
+      host: HOST,
+      port: PORT,
+      authEnforced: HOST !== '127.0.0.1'
+    }));
+    return;
+  }
+
+  // Local-only admin token bootstrap endpoint (for local loopback frontend)
+  if (url.pathname === '/api/auth/token' && req.method === 'GET') {
+    if (!isLoopback(req.socket.remoteAddress)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden: Admin token can only be retrieved from local loopback.' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ token: AUTH_TOKEN }));
+    return;
+  }
+
+  // Enforce authentication on all other /api/* endpoints
+  if (url.pathname.startsWith('/api/')) {
+    if (!checkAuthorization(req, url)) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized: Valid authentication token required.' }));
+      return;
+    }
+  }
 
   // 1. Static Sandboxed WebApp Preview Handler (/preview/:sessionId/:appName/:file*)
   if (url.pathname.startsWith('/preview/')) {
@@ -223,7 +315,7 @@ const server = http.createServer((req, res) => {
     req.on('end', async () => {
       try {
         const { command, sessionId } = JSON.parse(body);
-        const resExec = await sandbox.executeCommand(command, sessionId);
+        const resExec = await sandbox.executeCommand(sessionId || 'default', command);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(resExec));
       } catch (err: any) {
@@ -443,7 +535,19 @@ const server = http.createServer((req, res) => {
 // WebSocket Server for High-Performance Desktop IPC / Real-Time Streaming
 const wss = new WebSocketServer({ server });
 
-wss.on('connection', (ws: WebSocket) => {
+wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
+  const wsUrl = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
+  const remoteIp = req.socket.remoteAddress;
+
+  // Enforce auth if bound outside loopback and request is not from loopback
+  if (HOST !== '127.0.0.1' && !isLoopback(remoteIp)) {
+    const token = wsUrl.searchParams.get('token') || (req.headers['authorization']?.replace('Bearer ', ''));
+    if (token !== AUTH_TOKEN) {
+      ws.close(4401, 'Unauthorized');
+      return;
+    }
+  }
+
   ws.on('message', async (raw) => {
     try {
       const data = JSON.parse(raw.toString());
@@ -558,7 +662,7 @@ wss.on('connection', (ws: WebSocket) => {
         // --- Sandbox Terminal Command Execution ---
         case 'execute_sandbox_command': {
           const { command, sessionId } = payload || {};
-          const cmdRes = await sandbox.executeCommand(command, sessionId);
+          const cmdRes = await sandbox.executeCommand(sessionId || 'default', command);
           ws.send(JSON.stringify({ type: 'sandbox_command_executed', id, payload: cmdRes }));
           break;
         }
@@ -637,16 +741,16 @@ wss.on('connection', (ws: WebSocket) => {
   }));
 });
 
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, HOST, () => {
   console.log(`\n========================================================`);
-  console.log(`🚀 [EasyBot Enterprise Core] Desktop Agent Host Started`);
-  console.log(`   - LAN Access (同事访问): http://192.168.120.132:${PORT}`);
-  console.log(`   - Local Access:        http://127.0.0.1:${PORT}`);
-  console.log(`   - WebSocket Bridge:    ws://127.0.0.1:${PORT}`);
-  console.log(`   - VibeCoding Preview:  http://127.0.0.1:${PORT}/preview/`);
+  console.log(`🚀 [EasyBot Core] Desktop Agent Host Started`);
+  console.log(`   - Binding Host:        http://${HOST}:${PORT}`);
+  console.log(`   - Access Security:     ${HOST === '127.0.0.1' ? 'Local Loopback Isolated (Secure)' : 'Token Auth Enforced'}`);
+  console.log(`   - Auth Token:          ${AUTH_TOKEN.slice(0, 6)}...${AUTH_TOKEN.slice(-4)}`);
+  console.log(`   - WebSocket Bridge:    ws://${HOST}:${PORT}`);
   console.log(`   - Sandbox Root:        ${WORKSPACE_ROOT}`);
   console.log(`   - Storage Dir:         ${DATA_DIR}`);
-  console.log(`   - Skills Dir:          ${SKILLS_DIR}`);
+  console.log(`   - Knowledge Drop Dir:  ${DROP_DIR}`);
   console.log(`========================================================\n`);
 });
 
@@ -656,7 +760,7 @@ try {
     res.writeHead(302, { Location: `http://localhost:5173${req.url || ''}` });
     res.end();
   });
-  redirectServer.listen(3000, '0.0.0.0', () => {
+  redirectServer.listen(3000, HOST, () => {
     console.log(`🧭 [EasyBot] Port 3000 helper active -> forwarding to http://localhost:5173`);
   });
   redirectServer.on('error', () => {

@@ -20,9 +20,14 @@ test('1. Sandbox Isolation & Path Traversal Block', () => {
   const legit = sandbox.validatePathAccess(sessionId, 'subdir/file.txt', 'WRITE');
   assert.ok(legit.startsWith(sandbox.getSessionWorkspace(sessionId)));
 
-  // Path Traversal Attempt Blocked
+  // Standard Path Traversal Attempt Blocked
   assert.throws(() => {
     sandbox.validatePathAccess(sessionId, '../../../../etc/passwd', 'READ');
+  }, /Security Violation/);
+
+  // Prefix Collision Traversal Attempt Blocked (CVE-style startsWith bypass prevention)
+  assert.throws(() => {
+    sandbox.validatePathAccess(sessionId, `../${sessionId}_secret/leak.txt`, 'READ');
   }, /Security Violation/);
 
   fs.rmSync(tmpWorkspace, { recursive: true, force: true });
@@ -51,16 +56,29 @@ test('2. Sandbox Dangerous Command Detection & Audit Log', async () => {
   fs.rmSync(tmpWorkspace, { recursive: true, force: true });
 });
 
-test('3. WeKnora-grade Hybrid RAG (BM25 + Vector RRF)', () => {
+test('3. Industrial RAG (Okapi BM25 with Exact Code Matching)', () => {
   const rag = new HybridRAGEngine();
   rag.addDocument('doc-test-1', 'Linux Security Policy', 'Linux cgroups and namespaces provide operating system level virtualization and process sandboxing.');
-  rag.addDocument('doc-test-2', 'Network Firewall Guide', 'IPTables and eBPF packet filters inspect incoming TCP and UDP connections.');
+  rag.addDocument('doc-test-2', 'CNC Alarms SOP', '数控机床 E-06 报警代表主轴伺服过载，处理标准是立即按下急停按钮。');
+  rag.addDocument('doc-test-3', 'Tolerances SOP', '轴承外径公差按照 h6 标准执行，允许偏差上限为0，下偏差根据公称尺寸查表。');
 
-  const results = rag.query('cgroups sandboxing process', 3);
-  assert.ok(results.length > 0);
-  assert.equal(results[0].chunk.documentId, 'doc-test-1');
-  assert.ok(results[0].score > 0);
-  assert.equal(results[0].bm25Rank, 1);
+  // Test 1: General conceptual query
+  const res1 = rag.query('cgroups sandboxing process', 3);
+  assert.ok(res1.length > 0);
+  assert.equal(res1[0].chunk.documentId, 'doc-test-1');
+  assert.equal(res1[0].bm25Rank, 1);
+
+  // Test 2: Alphanumeric fault code exact match
+  const res2 = rag.query('E-06 报警', 3);
+  assert.ok(res2.length > 0);
+  assert.equal(res2[0].chunk.documentId, 'doc-test-2');
+  assert.ok(res2[0].matchedKeywords.includes('e-06'));
+
+  // Test 3: Tolerance code exact match
+  const res3 = rag.query('h6 公差', 3);
+  assert.ok(res3.length > 0);
+  assert.equal(res3[0].chunk.documentId, 'doc-test-3');
+  assert.ok(res3[0].matchedKeywords.includes('h6'));
 });
 
 test('4. MCP Standard Tools Catalog & Discovery', () => {

@@ -1,5 +1,3 @@
-import * as crypto from 'node:crypto';
-
 export interface DocumentChunk {
   id: string;
   documentId: string;
@@ -15,17 +13,26 @@ export interface RetrievalResult {
   chunk: DocumentChunk;
   score: number;
   bm25Rank: number;
-  vectorRank: number;
+  vectorRank?: number;
   matchedKeywords: string[];
 }
 
 /**
- * Enterprise-Grade Hybrid RAG Engine
- * Inspired by Tencent WeKnora's dual BM25 + Vector pipeline with Reciprocal Rank Fusion (RRF)
+ * Industrial Knowledge Retrieval Engine (Okapi BM25 + Pluggable Vectors)
+ * 
+ * DESIGN RATIONALE:
+ * In manufacturing and technical field operations, exact keyword matching for
+ * alphanumeric codes (e.g. "E-06", "SOP-EQ-01", "h6", "PA66") is paramount.
+ * This engine provides a deterministic, high-performance in-memory Okapi BM25 inverted
+ * index with an industrial CJK+code tokenizer.
+ * 
+ * If an external Embedding API (e.g., OpenAI /v1/embeddings or local Ollama) is configured,
+ * it supports dense vector cosine similarity and Reciprocal Rank Fusion (RRF).
+ * Otherwise, it transparently operates in pure Okapi BM25 mode with zero synthetic/fake embeddings.
  */
 export class HybridRAGEngine {
   private chunks: Map<string, DocumentChunk> = new Map();
-  private invertedIndex: Map<string, Set<string>> = new Map(); // token -> chunkIds
+  private invertedIndex: Map<string, Set<string>> = new Map(); // token -> Set<chunkId>
   private docLengths: Map<string, number> = new Map();
   private avgDocLength: number = 0;
 
@@ -37,36 +44,37 @@ export class HybridRAGEngine {
   constructor() {}
 
   /**
-   * Tokenize text into normalized n-grams/words (supporting CJK & English)
+   * Tokenize text into normalized tokens with CJK bigrams and industrial code preservation
    */
   public tokenize(text: string): string[] {
     const clean = text.toLowerCase();
-    // Match english words and CJK single characters / bigrams
-    const words: string[] = [];
-    const englishTokens = clean.match(/[a-z0-9_]+/g) || [];
-    words.push(...englishTokens);
+    const tokens: string[] = [];
 
-    // CJK character extractor
+    // 1. Match industrial alphanumeric tokens (e.g. E-06, SOP-EQ-01, h6, H7, PA66, 0.012mm)
+    const industrialTokens = clean.match(/[a-z0-9]+(?:[-_/][a-z0-9]+)*/g) || [];
+    tokens.push(...industrialTokens);
+
+    // 2. CJK single characters and bigrams
     const cjkMatches = clean.match(/[\u4e00-\u9fa5]/g) || [];
-    words.push(...cjkMatches);
+    tokens.push(...cjkMatches);
 
-    // CJK bigrams
     for (let i = 0; i < cjkMatches.length - 1; i++) {
-      words.push(cjkMatches[i] + cjkMatches[i + 1]);
+      tokens.push(cjkMatches[i] + cjkMatches[i + 1]);
     }
 
-    return words;
+    return tokens;
   }
 
   /**
-   * Add a document with automated parent-child chunking
+   * Add a document with automated parent-child sliding window chunking
    */
   public addDocument(
     documentId: string,
     documentTitle: string,
     content: string,
     chunkSize: number = 300,
-    chunkOverlap: number = 50
+    chunkOverlap: number = 50,
+    embeddings?: number[][]
   ): DocumentChunk[] {
     const addedChunks: DocumentChunk[] = [];
     let start = 0;
@@ -79,9 +87,7 @@ export class HybridRAGEngine {
       if (chunkText.length > 0) {
         const chunkId = `${documentId}#chunk-${index}`;
         const tokens = this.tokenize(chunkText);
-        
-        // Mock lightweight deterministic vector embedding for local scoring demonstration
-        const embedding = this.computeLightweightEmbedding(tokens);
+        const chunkEmbedding = embeddings ? embeddings[index] : undefined;
 
         const chunk: DocumentChunk = {
           id: chunkId,
@@ -90,7 +96,7 @@ export class HybridRAGEngine {
           content: chunkText,
           chunkIndex: index,
           tokens,
-          embedding
+          embedding: chunkEmbedding
         };
 
         this.chunks.set(chunkId, chunk);
@@ -122,7 +128,7 @@ export class HybridRAGEngine {
   }
 
   /**
-   * BM25 Scoring calculation for a query against all indexed chunks
+   * Standard Okapi BM25 Scoring calculation for a query
    */
   private scoreBM25(queryTokens: string[]): Map<string, { score: number; matches: string[] }> {
     const scores = new Map<string, { score: number; matches: string[] }>();
@@ -156,7 +162,7 @@ export class HybridRAGEngine {
   }
 
   /**
-   * Cosine similarity between two float vectors
+   * Cosine similarity between two float vectors (only used if real embeddings exist)
    */
   private cosineSimilarity(vecA: number[], vecB: number[]): number {
     if (vecA.length !== vecB.length) return 0;
@@ -173,22 +179,36 @@ export class HybridRAGEngine {
   }
 
   /**
-   * Hybrid Search using Reciprocal Rank Fusion (RRF)
+   * Query the index.
+   * If queryEmbedding is supplied and chunks have embeddings, uses Reciprocal Rank Fusion (RRF).
+   * Otherwise, cleanly operates in pure Okapi BM25 mode.
    */
-  public query(queryText: string, topK: number = 5): RetrievalResult[] {
+  public query(queryText: string, topK: number = 5, queryEmbedding?: number[]): RetrievalResult[] {
     const queryTokens = this.tokenize(queryText);
-    const queryEmbedding = this.computeLightweightEmbedding(queryTokens);
-
-    // 1. BM25 Ranking
     const bm25Map = this.scoreBM25(queryTokens);
+
+    // 1. BM25 Sorted Ranking
     const bm25Sorted = Array.from(bm25Map.entries())
       .sort((a, b) => b[1].score - a[1].score)
       .map(([chunkId, data], idx) => ({ chunkId, rank: idx + 1, score: data.score, matches: data.matches }));
 
-    // 2. Vector Ranking
+    // 2. Vector Ranking (only if query embedding and chunk embeddings are present)
+    const hasVectorSupport = Boolean(queryEmbedding && Array.from(this.chunks.values()).some(c => Boolean(c.embedding)));
+
+    if (!hasVectorSupport) {
+      // Pure BM25 mode (100% Honest, zero fake math)
+      return bm25Sorted.slice(0, topK).map(item => ({
+        chunk: this.chunks.get(item.chunkId)!,
+        score: item.score,
+        bm25Rank: item.rank,
+        matchedKeywords: item.matches
+      }));
+    }
+
+    // 3. Vector Ranking + RRF (Reciprocal Rank Fusion)
     const vectorScores: { chunkId: string; score: number }[] = [];
     for (const [chunkId, chunk] of this.chunks.entries()) {
-      if (chunk.embedding) {
+      if (chunk.embedding && queryEmbedding) {
         const sim = this.cosineSimilarity(queryEmbedding, chunk.embedding);
         vectorScores.push({ chunkId, score: sim });
       }
@@ -197,7 +217,6 @@ export class HybridRAGEngine {
       .sort((a, b) => b.score - a.score)
       .map((item, idx) => ({ chunkId: item.chunkId, rank: idx + 1, score: item.score }));
 
-    // 3. Reciprocal Rank Fusion (RRF)
     const rrfScores = new Map<string, { rrf: number; bm25Rank: number; vectorRank: number; matches: string[] }>();
 
     for (const item of bm25Sorted) {
@@ -215,7 +234,6 @@ export class HybridRAGEngine {
       rrfScores.set(item.chunkId, entry);
     }
 
-    // 4. Return topK
     return Array.from(rrfScores.entries())
       .sort((a, b) => b[1].rrf - a[1].rrf)
       .slice(0, topK)
@@ -226,20 +244,6 @@ export class HybridRAGEngine {
         vectorRank: meta.vectorRank,
         matchedKeywords: meta.matches
       }));
-  }
-
-  private computeLightweightEmbedding(tokens: string[]): number[] {
-    const dim = 64;
-    const vec = new Array(dim).fill(0);
-    for (const token of tokens) {
-      const hash = crypto.createHash('md5').update(token).digest();
-      for (let i = 0; i < dim; i++) {
-        vec[i] += (hash[i % hash.length] - 128) / 128.0;
-      }
-    }
-    // Normalize
-    const norm = Math.sqrt(vec.reduce((acc, v) => acc + v * v, 0));
-    return norm > 0 ? vec.map(v => v / norm) : vec;
   }
 
   public listDocuments(): { id: string; title: string; chunksCount: number; totalTokens: number }[] {
@@ -259,35 +263,29 @@ export class HybridRAGEngine {
   }
 
   public removeDocument(documentId: string): boolean {
-    const toDeleteChunkIds: string[] = [];
+    const chunksToRemove: string[] = [];
     for (const [chunkId, chunk] of this.chunks.entries()) {
       if (chunk.documentId === documentId) {
-        toDeleteChunkIds.push(chunkId);
+        chunksToRemove.push(chunkId);
       }
     }
-    if (toDeleteChunkIds.length === 0) return false;
 
-    for (const chunkId of toDeleteChunkIds) {
+    if (chunksToRemove.length === 0) return false;
+
+    for (const chunkId of chunksToRemove) {
       this.chunks.delete(chunkId);
       this.docLengths.delete(chunkId);
-    }
 
-    // Clean inverted index
-    for (const [term, postingSet] of this.invertedIndex.entries()) {
-      for (const chunkId of toDeleteChunkIds) {
+      for (const postingSet of this.invertedIndex.values()) {
         postingSet.delete(chunkId);
       }
-      if (postingSet.size === 0) {
-        this.invertedIndex.delete(term);
-      }
     }
 
-    // Recalculate avgDocLength
     let totalLen = 0;
     for (const len of this.docLengths.values()) {
       totalLen += len;
     }
-    this.avgDocLength = this.docLengths.size > 0 ? totalLen / this.docLengths.size : 1;
+    this.avgDocLength = this.chunks.size > 0 ? totalLen / this.chunks.size : 0;
 
     return true;
   }
@@ -300,11 +298,13 @@ export class HybridRAGEngine {
   }
 
   public getStats() {
+    const hasEmbeddings = Array.from(this.chunks.values()).some(c => Boolean(c.embedding));
     return {
-      totalDocuments: new Set(Array.from(this.chunks.values()).map(c => c.documentId)).size,
       totalChunks: this.chunks.size,
       vocabularySize: this.invertedIndex.size,
-      avgChunkLength: Math.round(this.avgDocLength)
+      avgDocLength: Math.round(this.avgDocLength),
+      retrievalMode: hasEmbeddings ? 'Hybrid (Okapi BM25 + Dense Vectors)' : 'Pure Okapi BM25 (Deterministic Lexical)',
+      vectorStatus: hasEmbeddings ? 'Active' : 'Not Configured (Operating in High-Precision BM25 Mode)'
     };
   }
 }

@@ -24,6 +24,15 @@ export interface SandboxAuditLog {
   details?: string;
 }
 
+/**
+ * Restricted Workspace Process Executor & Safety Guard
+ * 
+ * NOTE ON SECURITY BOUNDARIES:
+ * This module provides application-layer workspace directory containment, dangerous command pattern blacklisting,
+ * and command execution audit logging.
+ * It is NOT an OS-level or hardware-level kernel sandbox (e.g. Docker, cgroups, firecracker microVMs).
+ * Workloads run under the operating system permissions of the host process.
+ */
 export class SandboxEngine {
   private workspaceRoot: string;
   private policy: SandboxPolicy;
@@ -72,20 +81,24 @@ export class SandboxEngine {
 
   /**
    * Validates if a target path is strictly within the allowed workspace boundary.
-   * Prevents Directory Traversal attacks (e.g., ../../etc/passwd)
+   * Prevents Directory Traversal attacks (e.g., ../../etc/passwd, ../session_other)
+   * Uses path.relative to strictly prevent prefix collision vulnerabilities.
    */
   public validatePathAccess(sessionId: string, targetPath: string, mode: 'READ' | 'WRITE'): string {
-    const sessionDir = this.getSessionWorkspace(sessionId);
+    const sessionDir = path.resolve(this.getSessionWorkspace(sessionId));
     const resolved = path.resolve(sessionDir, targetPath);
 
-    // Enforce Boundary
-    if (!resolved.startsWith(sessionDir)) {
+    // Enforce Boundary: path.relative checks whether target escapes sessionDir
+    const relative = path.relative(sessionDir, resolved);
+    const isEscaped = relative.startsWith('..') || path.isAbsolute(relative);
+
+    if (isEscaped) {
       this.logAudit({
         sessionId,
         action: 'BLOCKED_ATTEMPT',
         targetPath: resolved,
         status: 'REJECTED',
-        details: `Path Traversal Violation: ${targetPath} resolved outside workspace boundary ${sessionDir}`
+        details: `Path Traversal Violation: ${targetPath} attempted to escape workspace ${sessionDir}`
       });
       throw new Error(`Security Violation: Path traversal outside workspace boundary is blocked: ${targetPath}`);
     }
