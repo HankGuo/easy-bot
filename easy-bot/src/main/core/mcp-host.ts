@@ -2,12 +2,22 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { WebSocketClientTransport } from '@modelcontextprotocol/sdk/client/websocket.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+
+export interface InProcessToolDef {
+  name: string;
+  description: string;
+  inputSchema: Record<string, any>;
+  handler: (args: Record<string, any>, context?: any) => Promise<any> | any;
+}
 
 export interface MCPServerConfig {
   id: string;
   name: string;
   description?: string;
-  transport: 'stdio' | 'sse' | 'websocket';
+  transport: 'stdio' | 'sse' | 'websocket' | 'in-memory';
   command?: string;
   args?: string[];
   env?: Record<string, string>;
@@ -17,6 +27,7 @@ export interface MCPServerConfig {
     type: 'bearer' | 'basic' | 'custom';
     token?: string;
   };
+  inMemoryTools?: InProcessToolDef[];
   status: 'CONNECTED' | 'DISCONNECTED' | 'ERROR';
   toolsCount: number;
 }
@@ -212,11 +223,49 @@ export class MCPHostManager {
         });
       } else if (config.transport === 'websocket' && config.url) {
         transport = new WebSocketClientTransport(new URL(config.url));
+      } else if (config.transport === 'in-memory') {
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        const server = new Server(
+          { name: config.name, version: '2.5.0' },
+          { capabilities: { tools: {} } }
+        );
+
+        const inMemoryTools = config.inMemoryTools || [];
+
+        server.setRequestHandler(ListToolsRequestSchema, async () => {
+          return {
+            tools: inMemoryTools.map(t => ({
+              name: t.name,
+              description: t.description,
+              inputSchema: t.inputSchema
+            }))
+          };
+        });
+
+        server.setRequestHandler(CallToolRequestSchema, async (request) => {
+          const tool = inMemoryTools.find(t => t.name === request.params.name);
+          if (!tool) {
+            throw new Error(`In-process MCP tool "${request.params.name}" not found`);
+          }
+          const result = await tool.handler(request.params.arguments || {});
+          return {
+            content: [{ type: 'text', text: typeof result === 'string' ? result : JSON.stringify(result) }]
+          };
+        });
+
+        await Promise.all([
+          server.connect(serverTransport),
+          client.connect(clientTransport)
+        ]);
+
+        transport = clientTransport;
       } else {
         throw new Error(`Unsupported or unconfigured MCP transport: ${config.transport}`);
       }
 
-      await client.connect(transport);
+      if (config.transport !== 'in-memory') {
+        await client.connect(transport);
+      }
       this.clients.set(config.id, client);
       this.transports.set(config.id, transport);
 

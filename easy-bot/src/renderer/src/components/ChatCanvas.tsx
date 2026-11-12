@@ -237,7 +237,7 @@ export const ChatCanvas: React.FC<Props> = ({ session, onSendMessage, streamingC
                 }
               }}
               placeholder="向 EasyBot 描述您的工程任务、代码编写需求或设备故障代码（按 Enter 发送，Shift+Enter 换行）..."
-              className="w-full bg-transparent border-0 px-2 py-1 text-xs md:text-sm font-normal not-italic text-slate-800 placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed"
+              className="w-full bg-transparent border-0 px-3.5 py-2.5 text-sm font-normal not-italic text-slate-800 placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed block"
             />
 
             {/* Bottom Controls Row inside Composer */}

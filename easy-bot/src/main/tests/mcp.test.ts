@@ -120,4 +120,40 @@ describe('Unit Test: MCPHostManager & Tool Ecosystem', () => {
     await mcp.disconnectServer('temp-server');
     assert.equal(mcp.hasTool('temp_remote_tool'), false);
   });
+
+  it('5.9 should connect and execute tools via official MCP InMemoryTransport linked pair', async () => {
+    const config = await mcp.registerServer({
+      id: 'inproc-qa-suite',
+      name: 'InProcess Manufacturing QA',
+      transport: 'in-memory',
+      inMemoryTools: [
+        {
+          name: 'verify_spindle_rpm',
+          description: 'Verify spindle RPM against ISO standard',
+          inputSchema: {
+            type: 'object',
+            properties: { rpm: { type: 'number' } },
+            required: ['rpm']
+          },
+          handler: async (args) => {
+            return { valid: args.rpm >= 1000 && args.rpm <= 12000, current: args.rpm };
+          }
+        }
+      ]
+    });
+
+    assert.equal(config.status, 'CONNECTED');
+    assert.equal(config.toolsCount, 1);
+    assert.equal(mcp.hasTool('verify_spindle_rpm'), true);
+
+    const callResult = await mcp.callTool('verify_spindle_rpm', { rpm: 8000 });
+    const parsed = JSON.parse(callResult);
+    assert.equal(parsed.valid, true);
+    assert.equal(parsed.current, 8000);
+
+    // Test disconnecting in-memory server
+    const disconnected = await mcp.disconnectServer('inproc-qa-suite');
+    assert.equal(disconnected, true);
+    assert.equal(mcp.hasTool('verify_spindle_rpm'), false);
+  });
 });
