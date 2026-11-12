@@ -343,10 +343,12 @@ export class IMEngine {
   // --- Public APIs ---
   public registerExpert(expert: Expert) {
     this.experts.set(expert.id, expert);
+    this.saveToDisk();
   }
 
   public registerChannel(channel: Channel) {
     this.channels.set(channel.id, channel);
+    this.saveToDisk();
   }
 
   public registerKeywordRouting(routing: Record<string, string>) {
