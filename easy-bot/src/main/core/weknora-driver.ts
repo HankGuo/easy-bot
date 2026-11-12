@@ -43,7 +43,9 @@ export class WeKnoraDriver {
 
   /**
    * Dispatches hybrid search (BM25 + Dense Vectors + GraphRAG) to WeKnora cluster
-   * Enforces row-level security scope (allowed_groups and space_id)
+   * Uses official WeKnora endpoints:
+   * - Space-scoped: POST /api/v1/knowledge-bases/{spaceId}/hybrid-search
+   * - Global: POST /api/v1/knowledge-search
    */
   public async searchHybrid(
     query: string,
@@ -56,16 +58,28 @@ export class WeKnoraDriver {
     };
     if (this.apiKey) {
       headers['Authorization'] = `Bearer ${this.apiKey}`;
+      headers['X-API-Key'] = this.apiKey;
     }
 
+    const endpointUrl = spaceId
+      ? `${this.endpoint}/api/v1/knowledge-bases/${encodeURIComponent(spaceId)}/hybrid-search`
+      : `${this.endpoint}/api/v1/knowledge-search`;
+
     const payload = {
-      query,
-      top_k: topK,
-      space_id: spaceId || undefined,
-      allowed_groups: allowedGroups
+      query_text: query,
+      knowledge_base_ids: spaceId ? [spaceId] : undefined,
+      match_count: topK,
+      vector_threshold: 0.4,
+      keyword_threshold: 0.2,
+      rerank: {
+        enabled: true
+      },
+      metadata_filter: allowedGroups.length > 0 ? {
+        owner_group_id: { $in: allowedGroups }
+      } : undefined
     };
 
-    const response = await fetch(`${this.endpoint}/api/v1/search/hybrid`, {
+    const response = await fetch(endpointUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
@@ -77,18 +91,20 @@ export class WeKnoraDriver {
     }
 
     const data: any = await response.json();
-    const items: any[] = Array.isArray(data) ? data : (data.data || data.results || []);
+    const items: any[] = Array.isArray(data)
+      ? data
+      : (data.data || data.results || data.documents || data.chunks || []);
 
     return items.map((item, index) => {
       const chunk: DocumentChunk = {
         id: item.chunk_id || item.id || `weknora_${index}`,
-        documentId: item.document_id || item.doc_id || 'weknora_doc',
-        documentTitle: item.document_title || item.title || 'WeKnora Knowledge Asset',
-        content: item.content || item.text || '',
+        documentId: item.document_id || item.doc_id || item.documentId || 'weknora_doc',
+        documentTitle: item.document_title || item.title || item.documentTitle || 'WeKnora Knowledge Asset',
+        content: item.content || item.text || item.chunk_text || '',
         chunkIndex: item.chunk_index ?? index,
         tokens: [],
-        spaceId: item.space_id || spaceId,
-        ownerGroupId: item.owner_group_id || undefined,
+        spaceId: item.space_id || item.knowledge_base_id || spaceId,
+        ownerGroupId: item.owner_group_id || item.metadata?.owner_group_id || undefined,
         metadata: item.metadata || {}
       };
 
@@ -103,13 +119,14 @@ export class WeKnoraDriver {
   }
 
   /**
-   * Ingests a new document into WeKnora knowledge base
+   * Ingests a new document into official WeKnora knowledge base:
+   * POST /api/v1/knowledge-bases/{spaceId}/documents
    */
   public async ingestDocument(
     documentId: string,
     documentTitle: string,
     content: string,
-    spaceId: string = 'public',
+    spaceId: string = 'default',
     ownerGroupId?: string
   ): Promise<boolean> {
     const headers: Record<string, string> = {
@@ -117,17 +134,21 @@ export class WeKnoraDriver {
     };
     if (this.apiKey) {
       headers['Authorization'] = `Bearer ${this.apiKey}`;
+      headers['X-API-Key'] = this.apiKey;
     }
 
-    const response = await fetch(`${this.endpoint}/api/v1/documents`, {
+    const targetSpace = spaceId || 'default';
+    const response = await fetch(`${this.endpoint}/api/v1/knowledge-bases/${encodeURIComponent(targetSpace)}/documents`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
-        document_id: documentId,
-        document_title: documentTitle,
+        title: documentTitle,
         content,
-        space_id: spaceId,
-        owner_group_id: ownerGroupId
+        metadata: {
+          document_id: documentId,
+          owner_group_id: ownerGroupId,
+          ingested_at: new Date().toISOString()
+        }
       }),
       signal: AbortSignal.timeout(this.timeoutMs)
     });

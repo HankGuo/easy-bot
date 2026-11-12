@@ -486,7 +486,7 @@ export function IMWorkspace({ onSendMessage, onTestConnector, onSwitchTab }: IMW
             </div>
 
             {/* Form */}
-            <form onSubmit={handleSend} className="flex gap-3">
+            <form onSubmit={handleSend} className="flex gap-3 items-center">
               <input
                 ref={inputRef}
                 type="text"
@@ -499,12 +499,12 @@ export function IMWorkspace({ onSendMessage, onTestConnector, onSwitchTab }: IMW
                   }
                 }}
                 placeholder="输入设备故障报警（如 E-06）、工艺参数公差核对或任务需求，支持 @专家 快速委派（按 Enter 即可发送）..."
-                className="flex-1 px-4.5 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/20 transition"
+                className="flex-1 px-5 py-3 bg-white border border-slate-300/90 rounded-xl text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 shadow-2xs transition font-normal not-italic leading-normal"
               />
               <button
                 type="submit"
                 disabled={!input.trim() && !isSending}
-                className="px-6 py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-xl text-sm font-semibold flex items-center gap-2 shadow-xs transition shrink-0"
+                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-xl text-sm font-semibold flex items-center gap-2 shadow-xs transition shrink-0"
               >
                 {isSending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 <span>{isSending ? '响应中' : '发送'}</span>

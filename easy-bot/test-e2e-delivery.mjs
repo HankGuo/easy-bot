@@ -29,16 +29,16 @@ async function runEndToEndDeliveryVerification() {
   const adminToken = adminLogin.token;
   console.log(`✔ 超管安全登录成功: ${adminLogin.user.displayName} (角标: ${adminLogin.user.role}) | 颁发签名 JWT\n`);
 
-  // 0.1 动态配置测试期大模型端点 (支持环境变量 TEST_AI_API_KEY 或本地私有化集群)
-  console.log('▶ [步骤 0.1] 超管权限动态配置大模型端点 (环境变量透传或私有化端点)...');
+  // 0.1 动态配置测试期大模型端点 (支持环境变量 TEST_AI_API_KEY 或 SenseNova 6.8 Flash-Lite)
+  console.log('▶ [步骤 0.1] 超管权限动态配置大模型端点 (SenseNova 6.8 Flash-Lite 直连)...');
   const testConfigRes = await fetch(`${BASE_URL}/api/model/config`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
     body: JSON.stringify({
       provider: 'openai-compatible',
-      baseUrl: process.env.TEST_AI_BASE_URL || 'http://127.0.0.1:11434/v1',
-      apiKey: process.env.TEST_AI_API_KEY || '',
-      model: process.env.TEST_AI_MODEL || 'deepseek-r1:7b',
+      baseUrl: process.env.TEST_AI_BASE_URL || 'https://token.sensenova.cn/v1',
+      apiKey: process.env.TEST_AI_API_KEY || 'sk-3UHPzn5qZBVktG9EZwE7AYxoXSxxxUTS',
+      model: process.env.TEST_AI_MODEL || 'sensenova-6.8-flash-lite',
       temperature: 0.7
     })
   });

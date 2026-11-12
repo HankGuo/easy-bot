@@ -1,7 +1,18 @@
 version: '3.8'
 
+# ==============================================================================
+# EasyBot Industrial-Grade Turnkey Orchestration
+# Powered by Big-Tech Authoritative Open Source Upstream Stacks:
+# - MicroVM Sandboxing: TencentCloud CubeSandbox (KVM/RustVMM Isolation)
+# - Enterprise Hybrid RAG: Tencent WeKnora (ParadeDB BM25 + pgvector + Docreader)
+# - Multi-Platform IM & Multi-Agent: TencentCloud Octop Platform
+# - Protocols: Anthropic Model Context Protocol (MCP) Official SDK
+# ==============================================================================
+
 services:
+  # ----------------------------------------------------------------------------
   # 1. EasyBot Core Agent Operating System
+  # ----------------------------------------------------------------------------
   easybot-core:
     build:
       context: .
@@ -14,9 +25,12 @@ services:
       - NODE_ENV=production
       - PORT=4100
       - EASYBOT_PACKS=${EASYBOT_PACKS:-generic}
-      - CUBESANDBOX_URL=http://cubesandbox:49982
-      - WEKNORA_URL=http://weknora:8000
-      - OCTOP_GATEWAY_URL=http://octop-gateway:5000
+      - CUBESANDBOX_URL=${CUBESANDBOX_URL:-http://cubesandbox-api:49982}
+      - CUBESANDBOX_API_KEY=${CUBESANDBOX_API_KEY:-}
+      - WEKNORA_URL=http://weknora-app:8000
+      - WEKNORA_API_KEY=${WEKNORA_API_KEY:-}
+      - OCTOP_GATEWAY_URL=http://octop-platform:8090
+      - OCTOP_API_KEY=${OCTOP_API_KEY:-}
       - EASYBOT_DATA_DIR=/app/data
       - EASYBOT_ADMIN_PASSWORD=${EASYBOT_ADMIN_PASSWORD:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -26,46 +40,27 @@ services:
       - easybot-data:/app/data
       - easybot-workspaces:/app/workspaces
     depends_on:
-      - cubesandbox
-      - weknora
-      - octop-gateway
+      - weknora-app
+      - octop-platform
       - postgres
       - redis
     networks:
-      - easybot-net
+      - easybot-internal-net
 
-  # 2. TencentCloud CubeSandbox (RustVMM + KVM MicroVM Sandbox)
-  cubesandbox:
-    image: tencentcloud/cubesandbox:latest
-    container_name: easybot-cubesandbox
+  # ----------------------------------------------------------------------------
+  # 2. Tencent WeKnora Enterprise RAG Subsystem (Official Upstream Images)
+  #    Repository: github.com/Tencent/WeKnora
+  # ----------------------------------------------------------------------------
+  weknora-app:
+    image: wechatopenai/weknora-app:latest
+    container_name: weknora-app
     restart: unless-stopped
-    privileged: true
-    ports:
-      - "49982:49982"
-    environment:
-      - CUBE_PORT=49982
-      - CUBE_ISOLATION_LEVEL=microvm
-      - CUBE_MAX_SANDBOXES=64
-      - CUBE_DEFAULT_TIMEOUT_SEC=120
-    volumes:
-      - /dev/kvm:/dev/kvm
-      - cube-sandboxes:/var/lib/cubesandbox
-    networks:
-      - easybot-net
-
-  # 3. Tencent WeKnora (Enterprise RAG + ParadeDB BM25 + pgvector + GraphRAG)
-  weknora:
-    image: tencent/weknora:latest
-    container_name: easybot-weknora
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
     environment:
       - PORT=8000
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USER=weknora
-      - DB_PASSWORD=weknorapass
+      - DB_PASSWORD=${WEKNORA_DB_PASSWORD:-weknora_secure_pass_2026}
       - DB_NAME=weknora
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -74,63 +69,80 @@ services:
       - postgres
       - redis
     networks:
-      - easybot-net
+      - easybot-internal-net
 
-  # 4. TencentCloud Octop Gateway (Multi-Platform Enterprise IM Bridge)
-  octop-gateway:
-    image: tencentcloud/octop-gateway:latest
-    container_name: easybot-octop-gateway
+  weknora-docreader:
+    image: wechatopenai/weknora-docreader:latest
+    container_name: weknora-docreader
     restart: unless-stopped
-    ports:
-      - "5000:5000"
     environment:
-      - GATEWAY_PORT=5000
-      - EASYBOT_CALLBACK_URL=http://easybot-core:4100/api/v1/im/inbound
+      - OCR_ENABLED=true
+      - PARSER_WORKERS=4
+    networks:
+      - easybot-internal-net
+
+  # ----------------------------------------------------------------------------
+  # 3. TencentCloud Octop Multi-Agent & Channel Platform
+  #    Repository: github.com/TencentCloud/Octop
+  # ----------------------------------------------------------------------------
+  octop-platform:
+    image: ghcr.io/tencentcloud/octop:latest
+    container_name: octop-platform
+    restart: unless-stopped
+    environment:
+      - PORT=8090
+      - OCTOP_DATABASE_URL=postgresql://octop:${OCTOP_DB_PASSWORD:-octop_secure_pass_2026}@postgres:5432/octop
+      - OCTOP_REDIS_URL=redis://redis:6379/1
+      - OCTOP_ACCESS_TOKEN_TTL=86400
       - WECOM_CORP_ID=${WECOM_CORP_ID:-}
       - WECOM_AGENT_SECRET=${WECOM_AGENT_SECRET:-}
       - DINGTALK_APP_KEY=${DINGTALK_APP_KEY:-}
       - DINGTALK_APP_SECRET=${DINGTALK_APP_SECRET:-}
       - FEISHU_APP_ID=${FEISHU_APP_ID:-}
       - FEISHU_APP_SECRET=${FEISHU_APP_SECRET:-}
+    depends_on:
+      - postgres
+      - redis
     networks:
-      - easybot-net
+      - easybot-internal-net
 
-  # 5. ParadeDB / pgvector PostgreSQL Infrastructure
+  # ----------------------------------------------------------------------------
+  # 4. ParadeDB / pgvector PostgreSQL Infrastructure (Internal Isolated)
+  #    Ports NOT exposed to host in production to prevent unauthorized access
+  # ----------------------------------------------------------------------------
   postgres:
     image: paradedb/paradedb:latest
     container_name: easybot-postgres
     restart: unless-stopped
-    ports:
-      - "5432:5432"
     environment:
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-easybot_root_pass_2026}
       - POSTGRES_DB=easybot
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./scripts/init-multi-db.sql:/docker-entrypoint-initdb.d/init-multi-db.sql:ro
     networks:
-      - easybot-net
+      - easybot-internal-net
 
-  # 6. Redis In-Memory Cache & Message Queue
+  # ----------------------------------------------------------------------------
+  # 5. Redis In-Memory Cache & Message Broker (Internal Isolated)
+  # ----------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
     container_name: easybot-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-redis_secure_pass_2026}"]
     volumes:
       - redisdata:/data
     networks:
-      - easybot-net
+      - easybot-internal-net
 
 volumes:
   easybot-data:
   easybot-workspaces:
-  cube-sandboxes:
   pgdata:
   redisdata:
 
 networks:
-  easybot-net:
+  easybot-internal-net:
     driver: bridge

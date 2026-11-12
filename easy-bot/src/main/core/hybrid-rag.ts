@@ -199,6 +199,12 @@ export class HybridRAGEngine {
       });
     }
 
+    // Sync to upstream Tencent WeKnora cluster if driver is connected
+    if (this.weknoraDriver) {
+      this.weknoraDriver.ingestDocument(documentId, documentTitle, content, spaceId, ownerGroupId)
+        .catch((err) => console.warn('[HybridRAG] Upstream WeKnora document sync warning:', err.message));
+    }
+
     return addedChunks;
   }
 

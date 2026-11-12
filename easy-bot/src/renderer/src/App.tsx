@@ -693,12 +693,12 @@ export function App() {
 
       {/* Right Main Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-50">
-        {/* Top Campus Organization & Identity Header */}
+        {/* Top Enterprise Organization & Identity Header */}
         <header className="h-12 bg-white border-b border-slate-200 px-4 flex items-center justify-between shrink-0 shadow-2xs">
           <div className="flex items-center gap-3">
             <span className="text-xs font-semibold text-slate-700 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              高校组织级 Agent 平台 (EduAgent OS)
+              EasyBot 企业级通用 Agent 操作系统 (Enterprise Agent OS)
             </span>
             <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/80 font-medium">
               全链路安全隔离
@@ -717,8 +717,8 @@ export function App() {
                       (currentUser.role === 'manager' || currentUser.role === 'teacher_pi') ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'
                     }`}>
                       {currentUser.role === 'superadmin' ? '系统管理员' :
-                       currentUser.role === 'admin' ? '机构管理员' :
-                       (currentUser.role === 'manager' || currentUser.role === 'teacher_pi') ? '主管/导师' : '组织成员'}
+                       currentUser.role === 'admin' ? '企业管理员' :
+                       (currentUser.role === 'manager' || currentUser.role === 'teacher_pi') ? '部门主管' : '团队成员'}
                     </span>
                   </div>
                   <div className="text-[10px] text-slate-400">{currentUser.department || '通用组织'}</div>

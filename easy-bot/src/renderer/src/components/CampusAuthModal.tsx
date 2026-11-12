@@ -63,10 +63,10 @@ export function CampusAuthModal({ isOpen, onSuccess }: CampusAuthModalProps) {
         {/* Header */}
         <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 p-6 text-white text-center relative">
           <div className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center mx-auto mb-3 backdrop-blur-md border border-white/20">
-            <GraduationCap className="w-7 h-7 text-blue-300" />
+            <Building2 className="w-7 h-7 text-blue-300" />
           </div>
-          <h2 className="text-xl font-bold tracking-tight">高校组织级 Agent 工作站</h2>
-          <p className="text-xs text-blue-200/80 mt-1">全校统一身份认证与组织隔离接入网关</p>
+          <h2 className="text-xl font-bold tracking-tight">EasyBot 企业级 Agent 工作站</h2>
+          <p className="text-xs text-blue-200/80 mt-1">企业统一身份认证与组织隔离接入网关</p>
         </div>
 
         {/* Auth Mode Tabs */}
@@ -81,7 +81,7 @@ export function CampusAuthModal({ isOpen, onSuccess }: CampusAuthModalProps) {
             }`}
           >
             <Building2 className="w-3.5 h-3.5" />
-            统一身份 (LDAP)
+            企业目录 (LDAP)
           </button>
           <button
             type="button"
@@ -92,8 +92,8 @@ export function CampusAuthModal({ isOpen, onSuccess }: CampusAuthModalProps) {
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <GraduationCap className="w-3.5 h-3.5" />
-            校内工号/导师
+            <Key className="w-3.5 h-3.5" />
+            本地业务账号
           </button>
           <button
             type="button"
@@ -105,7 +105,7 @@ export function CampusAuthModal({ isOpen, onSuccess }: CampusAuthModalProps) {
             }`}
           >
             <Shield className="w-3.5 h-3.5" />
-            安全管理员
+            超级管理员
           </button>
         </div>
 
@@ -120,15 +120,15 @@ export function CampusAuthModal({ isOpen, onSuccess }: CampusAuthModalProps) {
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              {activeTab === 'ldap' ? '统一认证学工号 / 校园邮箱' : activeTab === 'faculty' ? '教职工号 / 导师账号' : '管理员账号'}
+              {activeTab === 'ldap' ? '企业统一认证工号 / 邮箱' : activeTab === 'faculty' ? '业务员工号 / 账号' : '超级管理员账号'}
             </label>
             <div className="relative">
               <input
                 type="text"
                 value={username}
                 onChange={e => setUsername(e.target.value)}
-                placeholder={activeTab === 'ldap' ? 'stu_wang 或 t_zhang' : activeTab === 'faculty' ? 'prof_zhang' : 'admin'}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                placeholder={activeTab === 'ldap' ? 'user_li 或 lead_zhang' : activeTab === 'faculty' ? 'employee_01' : 'admin'}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm not-italic focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition"
                 autoFocus
               />
             </div>
@@ -142,7 +142,7 @@ export function CampusAuthModal({ isOpen, onSuccess }: CampusAuthModalProps) {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••••••"
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm not-italic focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition"
               />
             </div>
           </div>
@@ -162,7 +162,7 @@ export function CampusAuthModal({ isOpen, onSuccess }: CampusAuthModalProps) {
             {isLoading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>正在校验校园目录权限...</span>
+                <span>正在校验企业目录与权限...</span>
               </>
             ) : (
               <>
@@ -174,7 +174,7 @@ export function CampusAuthModal({ isOpen, onSuccess }: CampusAuthModalProps) {
 
           <div className="text-center pt-2">
             <span className="text-[11px] text-slate-400">
-              采用全校级 RBAC 行级授权与数字证书签名，严禁越权访问涉密课题成果
+              采用企业级 RBAC 行级授权与数字证书签名，严禁越权访问受控核心资产
             </span>
           </div>
         </form>

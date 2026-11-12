@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as crypto from 'node:crypto';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { Sandbox } from '@cubesandbox/sdk';
 
 export interface SandboxPolicy {
   enabled: boolean;
@@ -328,7 +329,8 @@ export class SandboxEngine {
 
   /**
    * Executes a command inside TencentCloud CubeSandbox (RustVMM + KVM hardware microVM)
-   * 100% E2B SDK and REST API compatible.
+   * Using official @cubesandbox/sdk Node.js client.
+   * Full lifecycle: Sandbox.create() -> commands.run() -> sandbox.kill()
    * Enforces fail-closed enterprise boundary: if CubeSandbox is unreachable or fails,
    * host execution fallback is strictly prohibited.
    */
@@ -339,35 +341,27 @@ export class SandboxEngine {
     startTime: number,
     onOutput?: (chunk: string) => void
   ): Promise<{ exitCode: number; stdout: string; stderr: string; executionTimeMs: number }> {
+    let sb: Sandbox | undefined;
     const endpoint = (this.policy.cubeSandboxEndpoint || 'http://127.0.0.1:49982').replace(/\/+$/, '');
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
-    };
-    if (this.policy.cubeSandboxApiKey) {
-      headers['X-API-Key'] = this.policy.cubeSandboxApiKey;
-    }
 
     try {
-      const response = await fetch(`${endpoint}/sandboxes/${sessionId}/commands`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          cmd: commandLine,
-          timeout: Math.round(this.policy.maxExecutionTimeMs / 1000)
-        }),
-        signal: AbortSignal.timeout(this.policy.maxExecutionTimeMs + 5000)
+      sb = await Sandbox.create({
+        apiUrl: endpoint,
+        config: {
+          apiUrl: endpoint,
+          apiKey: this.policy.cubeSandboxApiKey || process.env.CUBE_API_KEY || null,
+        },
+        timeout: Math.round(this.policy.maxExecutionTimeMs / 1000)
+      });
+
+      const res = await sb.commands.run(commandLine, {
+        timeoutMs: this.policy.maxExecutionTimeMs
       });
 
       const duration = Date.now() - startTime;
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`CubeSandbox endpoint returned HTTP ${response.status}: ${errText}`);
-      }
-
-      const result: any = await response.json();
-      const stdout = result.stdout || '';
-      const stderr = result.stderr || '';
-      const exitCode = result.exitCode ?? (result.exit_code ?? 0);
+      const stdout = res.stdout || '';
+      const stderr = res.stderr || '';
+      const exitCode = res.exitCode ?? 0;
 
       if (stdout && onOutput) onOutput(stdout);
       if (stderr && onOutput) onOutput(stderr);
@@ -375,9 +369,9 @@ export class SandboxEngine {
       this.logAudit({
         sessionId,
         action: 'EXECUTE',
-        command: `[CubeSandbox] ${commandLine}`,
+        command: `[CubeSandbox SDK] ${commandLine}`,
         status: exitCode === 0 ? 'COMPLETED' : 'FAILED',
-        details: `Exit code: ${exitCode}, Duration: ${duration}ms`
+        details: `SandboxID: ${sb.sandboxId}, ExitCode: ${exitCode}, Duration: ${duration}ms`
       });
 
       return {
@@ -390,11 +384,17 @@ export class SandboxEngine {
       this.logAudit({
         sessionId,
         action: 'BLOCKED_ATTEMPT',
-        command: `[CubeSandbox] ${commandLine}`,
+        command: `[CubeSandbox SDK] ${commandLine}`,
         status: 'FAILED',
-        details: `CubeSandbox microVM execution error: ${err.message}. Fail-closed enterprise policy prevents host fallback.`
+        details: `CubeSandbox microVM execution error via @cubesandbox/sdk: ${err.message}. Fail-closed enterprise policy prevents host fallback.`
       });
-      throw new Error(`Security Violation: CubeSandbox microVM execution failed: ${err.message}. Fail-closed enterprise policy prohibits host fallback.`);
+      throw new Error(`Security Violation: CubeSandbox microVM execution failed (@cubesandbox/sdk): ${err.message}. Fail-closed enterprise policy prohibits host fallback.`);
+    } finally {
+      if (sb) {
+        try {
+          await sb.kill();
+        } catch {}
+      }
     }
   }
 

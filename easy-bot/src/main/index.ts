@@ -1347,18 +1347,18 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
   ws.send(JSON.stringify({
     type: 'connected',
     payload: {
-      message: 'Connected to EasyBot EduAgent OS Core Runtime',
-      version: '2.5.0-org',
+      message: 'Connected to EasyBot Enterprise Agent OS Core Runtime',
+      version: '2.5.0-enterprise',
       currentUser: wsUser,
       activeSandbox: true,
-      features: ['LDAP', 'MultiTenancy', 'WeComDingTalk', 'HybridRAG', 'ContainerSandbox', 'HITL']
+      features: ['LDAP', 'MultiTenancy', 'OctopIMBridge', 'HybridRAG', 'ContainerSandbox', 'HITL']
     }
   }));
 });
 
 server.listen(PORT, HOST, () => {
   console.log(`\n========================================================`);
-  console.log(`🚀 [EasyBot Core] EduAgent OS Organization Host Started`);
+  console.log(`🚀 [EasyBot Core] Enterprise Desktop Agent Operating System Started`);
   console.log(`   - Binding Host:        http://${HOST}:${PORT}`);
   console.log(`   - Multi-Tenancy:       Active (Schema v2, Users & Groups)`);
   console.log(`   - Identity Provider:   LDAP & Local DB Integrated`);
