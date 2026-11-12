@@ -713,12 +713,15 @@ export function App() {
                     <span>{currentUser.displayName}</span>
                     <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
                       currentUser.role === 'superadmin' ? 'bg-purple-100 text-purple-700' :
-                      currentUser.role === 'teacher_pi' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'
+                      currentUser.role === 'admin' ? 'bg-emerald-100 text-emerald-700' :
+                      (currentUser.role === 'manager' || currentUser.role === 'teacher_pi') ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'
                     }`}>
-                      {currentUser.role === 'superadmin' ? '系统管理员' : currentUser.role === 'teacher_pi' ? 'PI 导师' : '学生/助教'}
+                      {currentUser.role === 'superadmin' ? '系统管理员' :
+                       currentUser.role === 'admin' ? '机构管理员' :
+                       (currentUser.role === 'manager' || currentUser.role === 'teacher_pi') ? '主管/导师' : '组织成员'}
                     </span>
                   </div>
-                  <div className="text-[10px] text-slate-400">{currentUser.department || '计算机科学与技术学院'}</div>
+                  <div className="text-[10px] text-slate-400">{currentUser.department || '通用组织'}</div>
                 </div>
                 <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-xs font-bold shadow-2xs">
                   {currentUser.displayName.slice(0, 1)}

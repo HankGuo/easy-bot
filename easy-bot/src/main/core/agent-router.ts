@@ -6,6 +6,7 @@ import { HybridRAGEngine } from './hybrid-rag.js';
 import { MCPHostManager } from './mcp-host.js';
 import { ModelClient, ModelConfig, ChatCompletionMessage } from './model-client.js';
 import { DSHEngineAdapter } from './dsh-adapter.js';
+import { SecurityContext, isRoleAuthorized } from './auth/security-context.js';
 
 export interface AgentMessage {
   id: string;
@@ -88,7 +89,7 @@ export class AgentRouter {
 
   public listSessions(userId?: string, role?: string): AgentSession[] {
     let list = Array.from(this.sessions.values());
-    if (role && role !== 'superadmin' && userId) {
+    if (role && !isRoleAuthorized(role, ['superadmin', 'admin']) && userId) {
       list = list.filter(s => !s.userId || s.userId === userId);
     }
     return list.sort(
@@ -104,7 +105,8 @@ export class AgentRouter {
     prompt: string,
     onChunk?: (chunk: string) => void,
     onToolCall?: (toolCall: ToolCallEvent) => void,
-    onToolResult?: (result: ToolResultEvent) => void
+    onToolResult?: (result: ToolResultEvent) => void,
+    context?: SecurityContext
   ): Promise<AgentMessage> {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`Session ${sessionId} not found`);
@@ -184,16 +186,18 @@ Always prefer calling tools when user asks to create files, execute scripts, or 
             toolOutput = execRes.stdout || execRes.stderr || `Command completed with code ${execRes.exitCode}`;
           } else if (tc.name === 'hybrid_rag_query') {
             const q = tc.args.query || prompt;
-            const hits = this.rag.query(q, tc.args.topK || 3);
+            const allowedGroups = context?.groups || [];
+            const hits = await this.rag.queryHybridAsync(q, allowedGroups, tc.args.topK || 3);
             toolOutput = JSON.stringify(hits.map(h => ({
               title: h.chunk.documentTitle,
               score: h.score,
-              snippet: h.chunk.content.slice(0, 150)
+              snippet: h.chunk.content.slice(0, 150),
+              spaceId: h.chunk.spaceId
             })), null, 2);
           } else if (this.mcp.hasTool(tc.name)) {
-            toolOutput = await this.mcp.callTool(tc.name, tc.args);
+            toolOutput = await this.mcp.callTool(tc.name, tc.args, { sessionId, context });
           } else {
-            toolOutput = `Tool ${tc.name} executed successfully.`;
+            throw new Error(`Tool "${tc.name}" is not registered in MCP host or built-in tools`);
           }
           toolEvent.status = 'COMPLETED';
         } catch (err: any) {

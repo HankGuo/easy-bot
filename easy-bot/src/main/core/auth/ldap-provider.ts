@@ -1,4 +1,5 @@
 import { Client } from 'ldapts';
+import { normalizeRole, EnterpriseRole } from './security-context.js';
 
 export interface LDAPConfig {
   enabled: boolean;
@@ -33,9 +34,11 @@ export class LDAPProvider {
       userFilter: config?.userFilter || '(&(objectClass=person)(uid={username}))',
       attributes: config?.attributes || ['dn', 'uid', 'cn', 'displayName', 'mail', 'department', 'ou', 'memberOf'],
       roleMapping: config?.roleMapping || {
+        'ou=managers': 'manager',
         'ou=faculty': 'teacher_pi',
-        'ou=admin': 'college_admin',
-        'ou=students': 'student'
+        'ou=admin': 'admin',
+        'ou=students': 'student',
+        'ou=members': 'member'
       },
       simulationMode: config?.simulationMode ?? false
     };
@@ -73,8 +76,10 @@ export class LDAPProvider {
     // 1. Campus Simulation Mode for offline air-gapped demo & tests
     if (this.config.simulationMode) {
       if (password.length >= 6) {
-        const isFaculty = safeUsername.startsWith('t') || safeUsername.includes('prof') || safeUsername.includes('tea');
-        const role = isFaculty ? 'teacher_pi' : 'student';
+        const isFaculty = safeUsername.startsWith('t') || safeUsername.includes('prof') || safeUsername.includes('tea') || safeUsername.includes('mgr');
+        const role = isFaculty
+          ? (this.config.roleMapping?.['ou=faculty'] || this.config.roleMapping?.['ou=managers'] || 'manager')
+          : (this.config.roleMapping?.['ou=students'] || this.config.roleMapping?.['ou=members'] || 'member');
         const department = isFaculty ? '人工智能国家重点实验室' : '计算机科学与技术学院';
         return {
           username: safeUsername,
@@ -120,7 +125,7 @@ export class LDAPProvider {
       }
 
       // Map roles
-      let role = 'student';
+      let role = this.config.roleMapping?.['ou=members'] || 'member';
       const ou = String(entry.ou || entry.department || '').toLowerCase();
       const memberOf = Array.isArray(entry.memberOf) ? entry.memberOf.map(String) : [String(entry.memberOf || '')];
 

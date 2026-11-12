@@ -1,4 +1,5 @@
 import * as crypto from 'node:crypto';
+import * as path from 'node:path';
 import { SandboxEngine } from './sandbox-engine.js';
 import { HybridRAGEngine } from './hybrid-rag.js';
 import { MCPHostManager } from './mcp-host.js';
@@ -38,6 +39,8 @@ export interface WorkflowDefinition {
   nodes: WorkflowNode[];
   entryNodeId: string;
 }
+
+export type WorkflowTemplate = WorkflowDefinition;
 
 export interface WorkflowExecutionLog {
   nodeId: string;
@@ -161,19 +164,39 @@ export class WorkflowEngine {
           case 'MCP_TOOL': {
             const toolName = cfg.toolName;
             if (!toolName) throw new Error('MCP_TOOL requires toolName');
-            const tool = this.mcp.getTool(toolName);
-            if (!tool) throw new Error(`Tool ${toolName} not found in MCP registry`);
+            if (!this.mcp.hasTool(toolName)) {
+              throw new Error(`Tool "${toolName}" not found in MCP registry`);
+            }
             
-            // Execute tool safely
+            // Interpolate tool arguments with context
+            const toolArgs: Record<string, any> = {};
+            if (cfg.toolArgs) {
+              for (const [k, v] of Object.entries(cfg.toolArgs)) {
+                toolArgs[k] = typeof v === 'string' ? this.interpolate(v, context) : v;
+              }
+            }
+
             if (toolName === 'workspace_file_write') {
-              const target = this.interpolate(cfg.toolArgs?.path || 'output.txt', context);
-              const content = this.interpolate(cfg.toolArgs?.content || '', context);
+              const target = toolArgs.path || 'output.txt';
+              const content = toolArgs.content || '';
               const validPath = this.sandbox.validatePathAccess(sessionId, target, 'WRITE');
               const fs = await import('node:fs');
+              const dir = path.dirname(validPath);
+              if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
               fs.writeFileSync(validPath, content, 'utf-8');
-              nodeOutput = `Written to ${target}`;
+              nodeOutput = `Written to ${target} (${Buffer.byteLength(content)} bytes)`;
+            } else if (toolName === 'workspace_file_read') {
+              const target = toolArgs.path || '';
+              const validPath = this.sandbox.validatePathAccess(sessionId, target, 'READ');
+              const fs = await import('node:fs');
+              nodeOutput = fs.readFileSync(validPath, 'utf-8');
+            } else if (toolName === 'workspace_shell_execute') {
+              const cmd = toolArgs.command || '';
+              const execRes = await this.sandbox.executeCommand(sessionId, cmd, undefined, true);
+              nodeOutput = execRes.stdout.trim() || execRes.stderr.trim();
             } else {
-              nodeOutput = `Tool ${toolName} executed successfully`;
+              // Real dispatch to external MCP server or registered custom tool
+              nodeOutput = await this.mcp.callTool(toolName, toolArgs, { sessionId });
             }
             if (cfg.outputKey) context[cfg.outputKey] = nodeOutput;
             break;

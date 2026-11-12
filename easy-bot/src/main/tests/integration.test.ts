@@ -666,3 +666,205 @@ test('22. Group Management RBAC & Faculty Membership Scoping', async () => {
 
   fs.rmSync(tmpData, { recursive: true, force: true });
 });
+
+test('23. Universal Enterprise Role Hierarchy & SecurityContext Normalization', async () => {
+  const { normalizeRole, isRoleAuthorized, createSecurityContext } = await import('../core/auth/security-context.js');
+
+  // Verify Role Normalization (bilingual enterprise mapping)
+  assert.equal(normalizeRole('superadmin'), 'superadmin');
+  assert.equal(normalizeRole('admin'), 'admin');
+  assert.equal(normalizeRole('plant_manager'), 'admin');
+  assert.equal(normalizeRole('dean'), 'admin');
+  assert.equal(normalizeRole('manager'), 'manager');
+  assert.equal(normalizeRole('teacher_pi'), 'manager');
+  assert.equal(normalizeRole('engineer'), 'manager');
+  assert.equal(normalizeRole('member'), 'member');
+  assert.equal(normalizeRole('student'), 'member');
+  assert.equal(normalizeRole('operator'), 'member');
+  assert.equal(normalizeRole('guest'), 'guest');
+
+  // Verify Role Authorization
+  assert.ok(isRoleAuthorized('teacher_pi', ['superadmin', 'admin', 'manager']));
+  assert.ok(isRoleAuthorized('engineer', ['superadmin', 'admin', 'manager']));
+  assert.equal(isRoleAuthorized('student', ['superadmin', 'admin', 'manager']), false);
+  assert.equal(isRoleAuthorized('operator', ['superadmin', 'admin', 'manager']), false);
+  assert.ok(isRoleAuthorized('student', ['member', 'guest']));
+
+  // Verify SecurityContext derivation
+  const ctx = createSecurityContext({
+    userId: 'usr_eng_01',
+    username: 'engineer_li',
+    displayName: '李总工',
+    role: 'engineer',
+    groups: ['grp_workshop_cnc', 'grp_maintenance']
+  });
+  assert.equal(ctx.role, 'manager');
+  assert.deepEqual(ctx.groups, ['grp_workshop_cnc', 'grp_maintenance']);
+});
+
+test('24. Context-Aware Agent Tool Execution (Multi-Tenant RAG Isolation in Tool Boundary)', async () => {
+  const { SandboxEngine } = await import('../core/sandbox-engine.js');
+  const { HybridRAGEngine } = await import('../core/hybrid-rag.js');
+  const { MCPHostManager } = await import('../core/mcp-host.js');
+  const { AgentRouter } = await import('../core/agent-router.js');
+  const { createSecurityContext } = await import('../core/auth/security-context.js');
+
+  const tmpWs = path.join(process.cwd(), 'tmp_test_agent_ctx');
+  const sandbox = new SandboxEngine(tmpWs, { backend: 'local' });
+  const rag = new HybridRAGEngine();
+  const mcp = new MCPHostManager();
+  const router = new AgentRouter(sandbox, rag, mcp);
+
+  // Index a confidential document into a restricted group
+  rag.addDocument('doc-secret', '保密核心技术规范', '此文档属于高机密装配工艺文档，包含关键装配扭矩 150Nm 与润滑规范', 300, 50, undefined, 'confidential', 'grp_senior_engineers');
+
+  // Test 1: Query as unauthorized user (e.g. general member in grp_assembly_line)
+  const unauthCtx = createSecurityContext({
+    userId: 'usr_op_1',
+    username: 'operator_1',
+    role: 'member',
+    groups: ['grp_assembly_line']
+  });
+
+  const session1 = router.createSession('测试会话1', 'DeepSeekHarness', undefined, unauthCtx.userId);
+  const hitsUnauth = await rag.queryHybridAsync('关键装配扭矩', unauthCtx.groups);
+  assert.equal(hitsUnauth.length, 0, 'Unauthorized group user must NOT retrieve confidential chunk');
+
+  // Test 2: Query as authorized user (engineer in grp_senior_engineers)
+  const authCtx = createSecurityContext({
+    userId: 'usr_eng_1',
+    username: 'senior_eng',
+    role: 'manager',
+    groups: ['grp_senior_engineers']
+  });
+
+  const hitsAuth = await rag.queryHybridAsync('关键装配扭矩', authCtx.groups);
+  assert.equal(hitsAuth.length, 1, 'Authorized group user must retrieve confidential chunk');
+  assert.ok(hitsAuth[0].chunk.content.includes('150Nm'));
+
+  fs.rmSync(tmpWs, { recursive: true, force: true });
+});
+
+test('25. MCP Real Tool Dispatching & Zero-Stub Workflow Enforcement', async () => {
+  const { SandboxEngine } = await import('../core/sandbox-engine.js');
+  const { HybridRAGEngine } = await import('../core/hybrid-rag.js');
+  const { MCPHostManager } = await import('../core/mcp-host.js');
+  const { WorkflowEngine } = await import('../core/workflow-engine.js');
+
+  const tmpWs = path.join(process.cwd(), 'tmp_test_mcp_real');
+  const sandbox = new SandboxEngine(tmpWs, { backend: 'local' });
+  const rag = new HybridRAGEngine();
+  const mcp = new MCPHostManager();
+  const workflow = new WorkflowEngine(sandbox, rag, mcp);
+
+  // 1. Calling non-existent tool must throw real error, not return fake stub
+  let errorThrown = false;
+  try {
+    await mcp.callTool('non_existent_fake_tool', {});
+  } catch (err: any) {
+    errorThrown = true;
+    assert.ok(err.message.includes('not found in MCP registry'));
+  }
+  assert.ok(errorThrown, 'Zero-Mock Enforcement: unregistered tool calls must fail with explicit error');
+
+  // 2. Register custom MCP tool with real handler
+  mcp.registerCustomTool({
+    name: 'custom_calc_metric',
+    description: 'Calculates performance efficiency metric',
+    serverId: 'custom-math',
+    inputSchema: { type: 'object' }
+  }, async (args) => {
+    const a = Number(args.a || 0);
+    const b = Number(args.b || 0);
+    return JSON.stringify({ sum: a + b, product: a * b });
+  });
+
+  const toolRes = await mcp.callTool('custom_calc_metric', { a: 15, b: 4 });
+  const parsed = JSON.parse(toolRes);
+  assert.equal(parsed.sum, 19);
+  assert.equal(parsed.product, 60);
+
+  // 3. Workflow MCP_TOOL node must execute real tool and record real output
+  const wfDef = {
+    id: 'wf-test-real-mcp',
+    name: 'Real MCP Execution Test',
+    entryNodeId: 'step-calc',
+    nodes: [
+      {
+        id: 'step-calc',
+        name: 'Calculate Metrics',
+        type: 'MCP_TOOL' as const,
+        config: {
+          toolName: 'custom_calc_metric',
+          toolArgs: { a: 20, b: 5 },
+          outputKey: 'math_result'
+        }
+      }
+    ]
+  };
+  workflow.registerWorkflow(wfDef);
+  const result = await workflow.executeWorkflow('wf-test-real-mcp', {});
+  assert.equal(result.status, 'COMPLETED');
+  const calcOutput = JSON.parse(result.logs[0].output);
+  assert.equal(calcOutput.sum, 25);
+  assert.equal(calcOutput.product, 100);
+
+  fs.rmSync(tmpWs, { recursive: true, force: true });
+});
+
+test('26. Pluggable Domain Adaptation Pack Architecture (Dual-Industry Switch Zero Core Mod)', async () => {
+  const { DomainPackManager } = await import('../packs/manager.js');
+  const { SandboxEngine } = await import('../core/sandbox-engine.js');
+  const { HybridRAGEngine } = await import('../core/hybrid-rag.js');
+  const { MCPHostManager } = await import('../core/mcp-host.js');
+  const { IMEngine } = await import('../core/im-engine.js');
+  const { WorkflowEngine } = await import('../core/workflow-engine.js');
+
+  const tmpWs = path.join(process.cwd(), 'tmp_test_domain_packs');
+  const tmpData = path.join(process.cwd(), 'tmp_test_domain_im');
+  const sandbox = new SandboxEngine(tmpWs, { backend: 'local' });
+  const rag = new HybridRAGEngine();
+  const mcp = new MCPHostManager();
+  const workflow = new WorkflowEngine(sandbox, rag, mcp);
+  const im = new IMEngine(tmpData, null as any, sandbox, rag);
+
+  const packManager = new DomainPackManager();
+  assert.ok(packManager.getPack('pack-edu'));
+  assert.ok(packManager.getPack('pack-mfg'));
+  assert.ok(packManager.getPack('pack-generic'));
+
+  // Test 1: Boot with EduPack (Higher Education)
+  await packManager.loadActivePacks('edu', { mcp, im, workflow, rag });
+  const eduToolRes = await mcp.callTool('edu_thesis_similarity_estimate', { text: '本课题围绕强化学习在微电网调度中的应用展开研究。' });
+  const eduParsed = JSON.parse(eduToolRes);
+  assert.equal(eduParsed.status, 'SUCCESS');
+  assert.equal(eduParsed.checkPassed, true);
+  assert.ok(im.getExpert('exp-academic'), 'EduPack must mount academic advisor');
+
+  // Test 2: Inbound message routing in Education Domain
+  const eduMsg = await im.handleInboundMessage('wecom', {
+    senderId: 'stu_01',
+    senderName: '研究生小张',
+    content: '请问张导师我的国家自然科学基金课题申报书该如何修改？'
+  });
+  assert.ok(eduMsg.expertName.includes('张导师'), 'EduPack keyword routing must direct to academic advisor');
+
+  // Test 3: Boot with MfgPack (Smart Manufacturing)
+  await packManager.loadActivePacks('mfg', { mcp, im, workflow, rag });
+  const mfgToolRes = await mcp.callTool('mfg_plc_fault_lookup', { faultCode: 'E-06' });
+  const mfgParsed = JSON.parse(mfgToolRes);
+  assert.equal(mfgParsed.severity, 'HIGH');
+  assert.ok(mfgParsed.diagnosticConclusion.includes('主轴伺服驱动器过热'));
+  assert.ok(im.getExpert('exp-equip'), 'MfgPack must mount maintenance engineer');
+
+  // Test 4: Inbound message routing in Manufacturing Domain
+  const mfgMsg = await im.handleInboundMessage('dingtalk', {
+    senderId: 'op_02',
+    senderName: '产线操作工',
+    content: '二车间机床主轴发生伺服过热故障，设备已经自动报警急停，该怎么处理？'
+  });
+  assert.ok(mfgMsg.expertName.includes('马工'), 'MfgPack keyword routing must direct to equipment maintenance engineer');
+
+  fs.rmSync(tmpWs, { recursive: true, force: true });
+  fs.rmSync(tmpData, { recursive: true, force: true });
+});

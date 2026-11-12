@@ -43,6 +43,16 @@ export interface Connector {
   };
 }
 
+export interface IChannelConnector {
+  id: string;
+  name: string;
+  type: Connector['type'];
+  status: Connector['status'];
+  config: Record<string, any>;
+  init(config: Record<string, any>): Promise<void>;
+  testConnection(): Promise<{ success: boolean; latencyMs: number; message: string }>;
+}
+
 export interface IMMessage {
   id: string;
   channelId: string;
@@ -68,6 +78,7 @@ export class IMEngine {
   private channels: Map<string, Channel> = new Map();
   private connectors: Map<string, Connector> = new Map();
   private messages: Map<string, IMMessage[]> = new Map(); // channelId -> IMMessage[]
+  private keywordRoutingMap: Map<string, string> = new Map();
 
   constructor(dataDir: string, modelClient: ModelClient, sandbox: SandboxEngine, rag: HybridRAGEngine) {
     this.dataDir = dataDir;
@@ -398,6 +409,20 @@ export class IMEngine {
   }
 
   // --- Public APIs ---
+  public registerExpert(expert: Expert) {
+    this.experts.set(expert.id, expert);
+  }
+
+  public registerChannel(channel: Channel) {
+    this.channels.set(channel.id, channel);
+  }
+
+  public registerKeywordRouting(routing: Record<string, string>) {
+    for (const [kw, expertId] of Object.entries(routing)) {
+      this.keywordRoutingMap.set(kw.toLowerCase(), expertId);
+    }
+  }
+
   public listExperts(): Expert[] {
     return Array.from(this.experts.values());
   }
@@ -600,14 +625,23 @@ export class IMEngine {
     let targetExpertId = body.expertId;
     if (!targetExpertId) {
       const lower = body.content.toLowerCase();
-      if (lower.includes('设备') || lower.includes('故障') || lower.includes('报警') || lower.includes('机床')) {
-        targetExpertId = 'exp-equip';
-      } else if (lower.includes('选课') || lower.includes('学分') || lower.includes('教务') || lower.includes('毕业')) {
-        targetExpertId = 'exp-edu-affairs';
-      } else if (lower.includes('科研') || lower.includes('论文') || lower.includes('基金') || lower.includes('课题')) {
-        targetExpertId = 'exp-academic';
-      } else {
-        targetExpertId = 'exp-admin';
+      // 1. Dynamic Keyword Routing registered by active Domain Packs
+      for (const [kw, expId] of this.keywordRoutingMap.entries()) {
+        if (lower.includes(kw) && this.experts.has(expId)) {
+          targetExpertId = expId;
+          break;
+        }
+      }
+      // 2. Safe Fallback if no specific keyword matched
+      if (!targetExpertId) {
+        if (this.experts.has('exp-academic') && (lower.includes('科研') || lower.includes('论文') || lower.includes('课题'))) {
+          targetExpertId = 'exp-academic';
+        } else if (this.experts.has('exp-equip') && (lower.includes('设备') || lower.includes('故障') || lower.includes('机床'))) {
+          targetExpertId = 'exp-equip';
+        } else {
+          const firstExp = Array.from(this.experts.values())[0];
+          targetExpertId = firstExp ? firstExp.id : 'exp-arch';
+        }
       }
     }
 

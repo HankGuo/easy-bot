@@ -17,6 +17,8 @@ import { IMEngine } from './core/im-engine.js';
 import { KnowledgeDropWatcher } from './core/knowledge-watcher.js';
 import { LDAPProvider } from './core/auth/ldap-provider.js';
 import { CryptoUtil, type JWTPayload } from './core/auth/crypto-util.js';
+import { isRoleAuthorized, normalizeRole } from './core/auth/security-context.js';
+import { DomainPackManager } from './packs/manager.js';
 import { RateLimiter } from './core/rate-limiter.js';
 
 // Security & Network Configuration
@@ -91,6 +93,16 @@ const screen = new ScreenPerceptionEngine(sandbox);
 const skills = new SkillLoader(SKILLS_DIR);
 const agentGroup = new AgentGroupCoordinator(sandbox, router, modelClient);
 const imEngine = new IMEngine(DATA_DIR, modelClient, sandbox, rag);
+const packManager = new DomainPackManager();
+(async () => {
+  try {
+    await packManager.loadActivePacks(process.env.EASYBOT_PACKS, { mcp, im: imEngine, workflow, rag });
+    console.log(`[DomainPacks] Active domain packs mounted: ${packManager.listActivePacks().map(p => p.id).join(', ')}`);
+  } catch (err: any) {
+    console.warn('[DomainPacks] Failed to mount domain packs:', err.message);
+  }
+})();
+
 const rateLimiter = new RateLimiter();
 setInterval(() => rateLimiter.cleanup(), 5 * 60 * 1000);
 
@@ -195,14 +207,14 @@ function resolveUser(req: http.IncomingMessage, url: URL): JWTPayload | null {
   return null;
 }
 
-// Server-Side RBAC Guard Helper
+// Server-Side RBAC Guard Helper (Standard Enterprise RBAC with Role Normalization)
 function requireRole(res: http.ServerResponse, user: JWTPayload | undefined, allowedRoles: string[]): boolean {
   if (!user) {
     res.writeHead(401, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Unauthorized: Authentication required.' }));
     return false;
   }
-  if (user.role === 'superadmin' || allowedRoles.includes(user.role)) {
+  if (isRoleAuthorized(user.role, allowedRoles)) {
     return true;
   }
   res.writeHead(403, { 'Content-Type': 'application/json' });
@@ -465,9 +477,32 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Domain Adaptation Packs Inspection API
+  if (url.pathname === '/api/packs' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      active: packManager.listActivePacks().map(p => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        version: p.version,
+        specialistsCount: p.specialists?.length || 0,
+        workflowsCount: p.workflows?.length || 0,
+        customToolsCount: p.customTools?.length || 0
+      })),
+      registered: packManager.listRegisteredPacks().map(p => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        version: p.version
+      }))
+    }));
+    return;
+  }
+
   // Organization & Multi-Tenancy Management Endpoints (RBAC Enforced)
   if (url.pathname === '/api/org/users' && req.method === 'GET') {
-    if (!requireRole(res, currentUser, ['superadmin', 'teacher_pi'])) return;
+    if (!requireRole(res, currentUser, ['superadmin', 'admin', 'manager'])) return;
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(store.listUsers()));
     return;
@@ -535,7 +570,7 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === '/api/org/groups/members' && req.method === 'POST') {
-    if (!requireRole(res, currentUser, ['superadmin', 'teacher_pi'])) return;
+    if (!requireRole(res, currentUser, ['superadmin', 'admin', 'manager'])) return;
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
@@ -568,16 +603,16 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // HITL (Human-in-the-Loop) Approval Endpoints (SuperAdmin & Faculty Review Only)
+  // HITL (Human-in-the-Loop) Approval Endpoints (SuperAdmin & Manager/Supervisor Review Only)
   if (url.pathname === '/api/hitl/pending' && req.method === 'GET') {
-    if (!requireRole(res, currentUser, ['superadmin', 'teacher_pi'])) return;
+    if (!requireRole(res, currentUser, ['superadmin', 'admin', 'manager'])) return;
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(store.listPendingHITLRequests()));
     return;
   }
 
   if (url.pathname === '/api/hitl/resolve' && req.method === 'POST') {
-    if (!requireRole(res, currentUser, ['superadmin', 'teacher_pi'])) return;
+    if (!requireRole(res, currentUser, ['superadmin', 'admin', 'manager'])) return;
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
@@ -826,11 +861,11 @@ const server = http.createServer((req, res) => {
           return;
         }
 
-        // Space & Group Isolation: Check write authorization for confidential lab spaces
+        // Space & Group Isolation: Check write authorization for restricted/confidential spaces
         if (spaceId && spaceId !== 'public') {
-          const isFacultyOrAdmin = currentUser?.role === 'superadmin' || currentUser?.role === 'teacher_pi';
+          const isManagerOrAdmin = isRoleAuthorized(currentUser?.role || '', ['superadmin', 'admin', 'manager']);
           const isGroupMember = ownerGroupId && currentUser?.groups ? currentUser.groups.includes(ownerGroupId) : false;
-          if (!isFacultyOrAdmin && !isGroupMember) {
+          if (!isManagerOrAdmin && !isGroupMember) {
             res.writeHead(403, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Forbidden: Insufficient privileges to upload into confidential space/group.' }));
             return;
@@ -849,7 +884,7 @@ const server = http.createServer((req, res) => {
   }
 
   if ((url.pathname === '/api/knowledge/documents' || url.pathname.startsWith('/api/knowledge/documents/')) && req.method === 'DELETE') {
-    if (!requireRole(res, currentUser, ['superadmin', 'teacher_pi'])) return;
+    if (!requireRole(res, currentUser, ['superadmin', 'admin', 'manager'])) return;
     const id = url.searchParams.get('id') || url.pathname.split('/').pop() || '';
     const success = dropWatcher.deleteFile(id) || rag.removeDocument(id);
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1135,6 +1170,7 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
 
         case 'send_prompt': {
           const { sessionId, prompt } = payload;
+          const userSecContext = CryptoUtil.toSecurityContext(wsUser);
           const msg = await router.handleUserMessage(
             sessionId,
             prompt,
@@ -1146,7 +1182,8 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
             },
             (toolResult) => {
               ws.send(JSON.stringify({ type: 'tool_result', sessionId, payload: toolResult }));
-            }
+            },
+            userSecContext
           );
           ws.send(JSON.stringify({ type: 'prompt_finished', id, sessionId, payload: msg }));
           break;
@@ -1161,8 +1198,8 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
         }
 
         case 'get_audit_logs': {
-          // RBAC Check: Audit logs are restricted to faculty reviewers and administrators
-          if (wsUser.role !== 'superadmin' && wsUser.role !== 'teacher_pi') {
+          // RBAC Check: Audit logs are restricted to supervisors and administrators
+          if (!isRoleAuthorized(wsUser.role, ['superadmin', 'admin', 'manager'])) {
             ws.send(JSON.stringify({ type: 'error', id, error: 'Forbidden: Insufficient privileges to view audit logs.' }));
             break;
           }

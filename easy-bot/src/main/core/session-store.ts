@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import { normalizeRole, isRoleAuthorized } from './auth/security-context.js';
 
 export interface UserRow {
   id: string;
@@ -120,14 +121,14 @@ export class SessionStore {
         token_source TEXT NOT NULL
       );
 
-      -- Organization & Multi-Tenancy Tables (EduAgent OS v2 Schema)
+      -- Organization & Multi-Tenancy Tables (Standard Enterprise RBAC Schema)
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         username TEXT UNIQUE NOT NULL,
         password_hash TEXT,
         display_name TEXT NOT NULL,
         email TEXT,
-        role TEXT NOT NULL DEFAULT 'student',
+        role TEXT NOT NULL DEFAULT 'member',
         auth_source TEXT NOT NULL DEFAULT 'local',
         department TEXT,
         created_at TEXT NOT NULL,
@@ -266,7 +267,7 @@ export class SessionStore {
   }
 
   public getSessions(userId?: string, role?: string): any[] {
-    if (role === 'superadmin' || !userId) {
+    if (isRoleAuthorized(role || '', ['superadmin', 'admin']) || !userId) {
       return this.db.prepare('SELECT * FROM sessions ORDER BY created_at DESC').all();
     }
     return this.db.prepare('SELECT * FROM sessions WHERE user_id = ? ORDER BY created_at DESC').all(userId);
@@ -299,7 +300,7 @@ export class SessionStore {
     department?: string;
   }): UserRow {
     const now = new Date().toISOString();
-    const role = user.role || 'student';
+    const role = normalizeRole(user.role || 'member');
     const authSource = user.authSource || 'local';
     const email = user.email || null;
     const department = user.department || null;

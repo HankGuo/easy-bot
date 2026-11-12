@@ -1,4 +1,5 @@
 import * as crypto from 'node:crypto';
+import { SecurityContext, createSecurityContext, normalizeRole } from './security-context.js';
 
 export interface JWTPayload {
   userId: string;
@@ -13,6 +14,17 @@ export interface JWTPayload {
 }
 
 export class CryptoUtil {
+  public static toSecurityContext(payload: JWTPayload): SecurityContext {
+    return createSecurityContext({
+      userId: payload.userId,
+      username: payload.username,
+      displayName: payload.displayName,
+      role: normalizeRole(payload.role),
+      authSource: payload.authSource,
+      department: payload.department,
+      groups: payload.groups || []
+    });
+  }
   public static hashPassword(password: string): string {
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = crypto.scryptSync(password, salt, 64).toString('hex');
