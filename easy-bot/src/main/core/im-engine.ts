@@ -187,7 +187,7 @@ export class IMEngine {
         description: '基于腾讯云开源 Octop Gateway，打通企业微信、钉钉、飞书与 QQ 多平台统一路由与消息下发。',
         status: process.env.OCTOP_GATEWAY_URL ? 'connected' : 'unconfigured',
         config: {
-          endpoint: process.env.OCTOP_GATEWAY_URL || 'http://127.0.0.1:5000',
+          endpoint: process.env.OCTOP_GATEWAY_URL || 'http://127.0.0.1:8088',
           defaultPlatform: 'wecom'
         },
         lastSync: '待连接',
@@ -465,6 +465,21 @@ export class IMEngine {
         this.messages.get(channelId)!.push(expertMsg);
         channel.lastMessage = `${expertMsg.senderName}: ${expertMsg.content.slice(0, 30)}`;
         channel.lastMessageTime = expertMsg.timestamp;
+
+        // Active Disptach: Mirror message through connected Octop Unified Gateway pipeline
+        const octopConn = this.connectors.get('conn-octop');
+        if (octopConn && octopConn.status === 'connected' && octopConn.config?.endpoint) {
+          try {
+            const octop = new OctopGatewayDriver({
+              endpoint: octopConn.config.endpoint,
+              apiKey: octopConn.config.apiKey,
+              username: octopConn.config.username,
+              password: octopConn.config.password
+            });
+            octop.dispatchMessage('agent-main', `[${expertMsg.senderName}] ${expertMsg.content}`, channelId).catch(() => {});
+            octopConn.stats.totalDispatched += 1;
+          } catch {}
+        }
       } catch (err: any) {
         expertMsg = {
           id: 'msg_' + Math.random().toString(36).substring(7),
@@ -503,27 +518,49 @@ export class IMEngine {
     const startTime = Date.now();
     try {
       if (conn.type === 'octop') {
-        const octop = new OctopGatewayDriver({ endpoint: webhookUrl });
+        const octop = new OctopGatewayDriver({
+          endpoint: webhookUrl,
+          apiKey: conn.config?.apiKey,
+          username: conn.config?.username,
+          password: conn.config?.password
+        });
         const isUp = await octop.isAvailable();
-        const latencyMs = Date.now() - startTime;
-        if (isUp) {
-          conn.status = 'connected';
-          conn.lastSync = '刚刚';
-          this.saveToDisk();
-          return {
-            success: true,
-            latencyMs,
-            message: `[${conn.name}] 成功连通 TencentCloud Octop 网关集群 (${latencyMs}ms)`
-          };
-        } else {
+        if (!isUp) {
           conn.status = 'error';
           this.saveToDisk();
           return {
             success: false,
-            latencyMs,
-            message: `[${conn.name}] Octop 网关状态检查未通过`
+            latencyMs: Date.now() - startTime,
+            message: `[${conn.name}] Octop 网关状态检查未通过 (端口 8088 未响应)`
           };
         }
+
+        // Validate JWT authentication if credentials configured
+        if (conn.config?.username && conn.config?.password) {
+          const token = await octop.ensureAuthenticated();
+          if (!token) {
+            conn.status = 'error';
+            this.saveToDisk();
+            return {
+              success: false,
+              latencyMs: Date.now() - startTime,
+              message: `[${conn.name}] Octop JWT 身份认证失败，请检查账号密码`
+            };
+          }
+        }
+
+        // Test outbound message dispatch pipeline
+        const dispatchRes = await octop.dispatchMessage('agent-main', '[EasyBot 探针] 连通性测试消息：系统已成功连通。');
+        const latencyMs = Date.now() - startTime;
+        conn.status = 'connected';
+        conn.lastSync = '刚刚';
+        conn.stats.totalDispatched += 1;
+        this.saveToDisk();
+        return {
+          success: true,
+          latencyMs,
+          message: `[${conn.name}] 成功连通 TencentCloud Octop 网关集群并验证消息投递通路 (${latencyMs}ms)`
+        };
       }
 
       const testPayload = conn.type === 'wecom'

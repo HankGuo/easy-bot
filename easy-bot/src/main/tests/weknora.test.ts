@@ -39,7 +39,21 @@ describe('Unit Test: WeKnoraDriver Upstream API Integration', () => {
                 content: 'Industrial standard operating procedure for milling',
                 score: 0.95,
                 bm25_rank: 1,
-                matched_keywords: ['operating', 'procedure']
+                matched_keywords: ['operating', 'procedure'],
+                custom_metadata: {
+                  owner_group_id: 'grp_eng'
+                }
+              },
+              {
+                id: 'chunk_global_2',
+                document_id: 'doc_g2',
+                document_title: 'Finance Confidential',
+                content: 'Confidential bonus budget 2026',
+                score: 0.90,
+                bm25_rank: 2,
+                custom_metadata: {
+                  owner_group_id: 'grp_finance_only'
+                }
               }
             ]
           }));
@@ -70,9 +84,15 @@ describe('Unit Test: WeKnoraDriver Upstream API Integration', () => {
           return;
         }
 
-        if (req.url?.includes('/documents') && req.method === 'POST') {
+        if (req.url?.includes('/knowledge/manual') && req.method === 'POST') {
           res.writeHead(201, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ id: 'doc_created_123', success: true }));
+          return;
+        }
+
+        if (req.url?.includes('/knowledge/manual/') && req.method === 'PUT') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ id: 'doc_updated_123', success: true }));
           return;
         }
 
@@ -119,26 +139,33 @@ describe('Unit Test: WeKnoraDriver Upstream API Integration', () => {
     assert.equal(isUp, false);
   });
 
-  it('3.4 should dispatch global hybrid search to /api/v1/knowledge-search with official payload', async () => {
+  it('3.4 should dispatch global hybrid search to /api/v1/knowledge-search with official payload and enforce row-level filtering', async () => {
     const driver = new WeKnoraDriver({
       endpoint: `http://127.0.0.1:${serverPort}`,
-      apiKey: 'test_weknora_key'
+      apiKey: 'test_weknora_key',
+      defaultKnowledgeBaseId: 'kb_production'
     });
 
+    // Allowed group is 'grp_eng'; 'grp_finance_only' document should be post-filtered out
     const hits = await driver.searchHybrid('operating procedure', ['grp_eng'], 5);
     assert.equal(lastRequest.url, '/api/v1/knowledge-search');
     assert.equal(lastRequest.headers?.['authorization'], 'Bearer test_weknora_key');
     assert.equal(lastRequest.headers?.['x-api-key'], 'test_weknora_key');
 
-    assert.equal(lastRequest.body.query_text, 'operating procedure');
-    assert.equal(lastRequest.body.match_count, 5);
+    // Official WeKnora parameters
+    assert.equal(lastRequest.body.query, 'operating procedure');
+    assert.equal(lastRequest.body.knowledge_base_id, 'kb_production');
+    assert.deepEqual(lastRequest.body.knowledge_base_ids, ['kb_production']);
+    assert.equal(lastRequest.body.top_k, 5);
     assert.equal(lastRequest.body.rerank?.enabled, true);
-    assert.deepEqual(lastRequest.body.metadata_filter, { owner_group_id: { $in: ['grp_eng'] } });
+    // Unsupported metadata_filter must NOT be sent to WeKnora API
+    assert.equal(lastRequest.body.metadata_filter, undefined);
 
+    // Row-level Security: only grp_eng doc is returned; finance doc is excluded
     assert.equal(hits.length, 1);
     assert.equal(hits[0].chunk.documentId, 'doc_g1');
     assert.equal(hits[0].chunk.documentTitle, 'Global Guidelines');
-    assert.equal(hits[0].score, 0.95);
+    assert.equal(hits[0].chunk.ownerGroupId, 'grp_eng');
   });
 
   it('3.5 should dispatch space-scoped search to /api/v1/knowledge-bases/{spaceId}/hybrid-search', async () => {
@@ -148,35 +175,28 @@ describe('Unit Test: WeKnoraDriver Upstream API Integration', () => {
     });
 
     const hits = await driver.searchHybrid('formula', [], 3, 'space_secret');
-    assert.equal(lastRequest.url, '/api/v1/knowledge-bases/space_secret/hybrid-search');
-    assert.equal(lastRequest.body.query_text, 'formula');
-    assert.equal(lastRequest.body.match_count, 3);
-
+    assert.ok(lastRequest.url?.includes('/api/v1/knowledge-bases/space_secret/hybrid-search'));
+    assert.equal(lastRequest.body.query, 'formula');
+    assert.equal(lastRequest.body.top_k, 3);
     assert.equal(hits.length, 1);
-    assert.equal(hits[0].chunk.id, 'chunk_space_1');
     assert.equal(hits[0].chunk.content, 'Secret formula 42');
   });
 
-  it('3.6 should ingest documents to /api/v1/knowledge-bases/{spaceId}/documents', async () => {
+  it('3.6 should ingest markdown knowledge to /api/v1/knowledge-bases/{spaceId}/knowledge/manual with status=publish', async () => {
     const driver = new WeKnoraDriver({
       endpoint: `http://127.0.0.1:${serverPort}`,
-      apiKey: 'ingest_key'
+      apiKey: 'write_key'
     });
 
-    const success = await driver.ingestDocument(
-      'doc_new_99',
-      'New Technical Manual',
-      'Full technical manual text content',
-      'space_mfg',
-      'grp_mfg_team'
-    );
-
-    assert.equal(success, true);
-    assert.equal(lastRequest.url, '/api/v1/knowledge-bases/space_mfg/documents');
-    assert.equal(lastRequest.body.title, 'New Technical Manual');
-    assert.equal(lastRequest.body.content, 'Full technical manual text content');
-    assert.equal(lastRequest.body.metadata.document_id, 'doc_new_99');
-    assert.equal(lastRequest.body.metadata.owner_group_id, 'grp_mfg_team');
+    const ok = await driver.ingestDocument('doc_new_1', 'Safety SOP', '# CNC Milling Safety Protocol', 'space_manufacturing', 'grp_eng');
+    assert.equal(ok, true);
+    assert.equal(lastRequest.url, '/api/v1/knowledge-bases/space_manufacturing/knowledge/manual');
+    assert.equal(lastRequest.body.title, 'Safety SOP');
+    assert.equal(lastRequest.body.content, '# CNC Milling Safety Protocol');
+    // Critical: status must be publish so WeKnora indexes it
+    assert.equal(lastRequest.body.status, 'publish');
+    assert.equal(lastRequest.body.custom_metadata?.document_id, 'doc_new_1');
+    assert.equal(lastRequest.body.custom_metadata?.owner_group_id, 'grp_eng');
   });
 
   it('3.7 should propagate upstream cluster HTTP errors explicitly', async () => {
@@ -184,9 +204,8 @@ describe('Unit Test: WeKnoraDriver Upstream API Integration', () => {
       endpoint: `http://127.0.0.1:${serverPort}`
     });
 
-    // Request non-existent space configured to return 404
     await assert.rejects(
-      () => driver.searchHybrid('fail', [], 5, 'error_404'),
+      () => driver.searchHybrid('any', [], 5, 'error_404_space'),
       /WeKnora cluster returned HTTP 404/
     );
   });

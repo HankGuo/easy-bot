@@ -226,4 +226,13 @@ describe('Unit Test: SandboxEngine Security & MicroVM Jailing', () => {
     assert.ok(SCRIPT_INTERPRETER_COMMANDS.includes('bash'));
     assert.ok(SCRIPT_INTERPRETER_COMMANDS.includes('sh'));
   });
+
+  it('1.16 should configure official CubeSandbox port 3000 and default template', () => {
+    const prevUrl = process.env.CUBESANDBOX_URL;
+    delete process.env.CUBESANDBOX_URL;
+    const sb = new SandboxEngine(testWorkspace);
+    assert.equal(sb.getPolicy().cubeSandboxEndpoint, 'http://127.0.0.1:3000');
+    assert.equal(sb.getPolicy().cubeTemplateId, 'default-node20');
+    if (prevUrl) process.env.CUBESANDBOX_URL = prevUrl;
+  });
 });

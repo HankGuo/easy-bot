@@ -3,7 +3,7 @@ version: '3.8'
 # ==============================================================================
 # EasyBot Industrial-Grade Turnkey Orchestration
 # Powered by Big-Tech Authoritative Open Source Upstream Stacks:
-# - MicroVM Sandboxing: TencentCloud CubeSandbox (KVM/RustVMM Isolation)
+# - MicroVM Sandboxing: TencentCloud CubeSandbox (KVM/RustVMM MicroVMs)
 # - Enterprise Hybrid RAG: Tencent WeKnora (ParadeDB BM25 + pgvector + Docreader)
 # - Multi-Platform IM & Multi-Agent: TencentCloud Octop Platform
 # - Protocols: Anthropic Model Context Protocol (MCP) Official SDK
@@ -25,11 +25,12 @@ services:
       - NODE_ENV=production
       - PORT=4100
       - EASYBOT_PACKS=${EASYBOT_PACKS:-generic}
-      - CUBESANDBOX_URL=${CUBESANDBOX_URL:-http://cubesandbox-api:49982}
+      - CUBESANDBOX_URL=${CUBESANDBOX_URL:-http://cubesandbox-api:3000}
       - CUBESANDBOX_API_KEY=${CUBESANDBOX_API_KEY:-}
+      - CUBE_TEMPLATE_ID=${CUBE_TEMPLATE_ID:-default-node20}
       - WEKNORA_URL=http://weknora-app:8000
       - WEKNORA_API_KEY=${WEKNORA_API_KEY:-}
-      - OCTOP_GATEWAY_URL=http://octop-platform:8090
+      - OCTOP_GATEWAY_URL=http://octop-platform:8088
       - OCTOP_API_KEY=${OCTOP_API_KEY:-}
       - EASYBOT_DATA_DIR=/app/data
       - EASYBOT_ADMIN_PASSWORD=${EASYBOT_ADMIN_PASSWORD:-}
@@ -40,6 +41,7 @@ services:
       - easybot-data:/app/data
       - easybot-workspaces:/app/workspaces
     depends_on:
+      - cubesandbox-api
       - weknora-app
       - octop-platform
       - postgres
@@ -48,13 +50,36 @@ services:
       - easybot-internal-net
 
   # ----------------------------------------------------------------------------
-  # 2. Tencent WeKnora Enterprise RAG Subsystem (Official Upstream Images)
+  # 2. TencentCloud CubeSandbox MicroVM Server (Official Port 3000 & KVM)
+  #    Repository: github.com/TencentCloud/CubeSandbox
+  # ----------------------------------------------------------------------------
+  cubesandbox-api:
+    image: tencentcloud/cubesandbox:latest
+    container_name: cubesandbox-api
+    restart: unless-stopped
+    ports:
+      - "${CUBESANDBOX_PORT:-3000}:3000"
+    environment:
+      - PORT=3000
+      - CUBE_TEMPLATE_ID=${CUBE_TEMPLATE_ID:-default-node20}
+      - API_KEY=${CUBESANDBOX_API_KEY:-}
+    devices:
+      - "/dev/kvm:/dev/kvm"
+    volumes:
+      - cubedata:/data
+    networks:
+      - easybot-internal-net
+
+  # ----------------------------------------------------------------------------
+  # 3. Tencent WeKnora Enterprise RAG Subsystem (Official Upstream Images)
   #    Repository: github.com/Tencent/WeKnora
   # ----------------------------------------------------------------------------
   weknora-app:
     image: wechatopenai/weknora-app:latest
     container_name: weknora-app
     restart: unless-stopped
+    ports:
+      - "${WEKNORA_PORT:-8000}:8000"
     environment:
       - PORT=8000
       - DB_HOST=postgres
@@ -64,6 +89,7 @@ services:
       - DB_NAME=weknora
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_secure_pass_2026}
       - EMBEDDING_MODEL=${WEKNORA_EMBEDDING_MODEL:-bge-large-zh-v1.5}
     depends_on:
       - postgres
@@ -82,17 +108,19 @@ services:
       - easybot-internal-net
 
   # ----------------------------------------------------------------------------
-  # 3. TencentCloud Octop Multi-Agent & Channel Platform
+  # 4. TencentCloud Octop Multi-Agent & Channel Platform
   #    Repository: github.com/TencentCloud/Octop
   # ----------------------------------------------------------------------------
   octop-platform:
     image: ghcr.io/tencentcloud/octop:latest
     container_name: octop-platform
     restart: unless-stopped
+    ports:
+      - "${OCTOP_PORT:-8088}:8088"
     environment:
-      - PORT=8090
+      - OCTOP_PORT=8088
       - OCTOP_DATABASE_URL=postgresql://octop:${OCTOP_DB_PASSWORD:-octop_secure_pass_2026}@postgres:5432/octop
-      - OCTOP_REDIS_URL=redis://redis:6379/1
+      - OCTOP_REDIS_URL=redis://:${REDIS_PASSWORD:-redis_secure_pass_2026}@redis:6379/1
       - OCTOP_ACCESS_TOKEN_TTL=86400
       - WECOM_CORP_ID=${WECOM_CORP_ID:-}
       - WECOM_AGENT_SECRET=${WECOM_AGENT_SECRET:-}
@@ -100,6 +128,8 @@ services:
       - DINGTALK_APP_SECRET=${DINGTALK_APP_SECRET:-}
       - FEISHU_APP_ID=${FEISHU_APP_ID:-}
       - FEISHU_APP_SECRET=${FEISHU_APP_SECRET:-}
+    volumes:
+      - octop-data:/data/.octop
     depends_on:
       - postgres
       - redis
@@ -107,8 +137,7 @@ services:
       - easybot-internal-net
 
   # ----------------------------------------------------------------------------
-  # 4. ParadeDB / pgvector PostgreSQL Infrastructure (Internal Isolated)
-  #    Ports NOT exposed to host in production to prevent unauthorized access
+  # 5. ParadeDB / pgvector PostgreSQL Infrastructure (Internal Isolated)
   # ----------------------------------------------------------------------------
   postgres:
     image: paradedb/paradedb:latest
@@ -125,7 +154,7 @@ services:
       - easybot-internal-net
 
   # ----------------------------------------------------------------------------
-  # 5. Redis In-Memory Cache & Message Broker (Internal Isolated)
+  # 6. Redis In-Memory Cache & Message Broker (Internal Isolated)
   # ----------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
@@ -140,6 +169,8 @@ services:
 volumes:
   easybot-data:
   easybot-workspaces:
+  cubedata:
+  octop-data:
   pgdata:
   redisdata:
 

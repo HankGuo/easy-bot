@@ -10,6 +10,7 @@ export interface SandboxPolicy {
   backend: 'cubesandbox' | 'docker' | 'local';
   cubeSandboxEndpoint?: string;
   cubeSandboxApiKey?: string;
+  cubeTemplateId?: string;
   dockerImage?: string;
   allowedCommands: string[];
   blockedPatterns: RegExp[];
@@ -128,8 +129,9 @@ export class SandboxEngine {
       enabled: true,
       isolationLevel: 'strict',
       backend: defaultBackend,
-      cubeSandboxEndpoint: policy?.cubeSandboxEndpoint || process.env.CUBESANDBOX_URL || 'http://127.0.0.1:49982',
+      cubeSandboxEndpoint: policy?.cubeSandboxEndpoint || process.env.CUBESANDBOX_URL || 'http://127.0.0.1:3000',
       cubeSandboxApiKey: policy?.cubeSandboxApiKey || process.env.CUBESANDBOX_API_KEY,
+      cubeTemplateId: policy?.cubeTemplateId || process.env.CUBE_TEMPLATE_ID || 'default-node20',
       dockerImage: 'node:20-alpine',
       allowedCommands: defaultAllowed,
       blockedPatterns: [
@@ -330,7 +332,7 @@ export class SandboxEngine {
   /**
    * Executes a command inside TencentCloud CubeSandbox (RustVMM + KVM hardware microVM)
    * Using official @cubesandbox/sdk Node.js client.
-   * Full lifecycle: Sandbox.create() -> commands.run() -> sandbox.kill()
+   * Full lifecycle: Sandbox.create() -> workspace sync -> commands.run() -> sync back -> sandbox.kill()
    * Enforces fail-closed enterprise boundary: if CubeSandbox is unreachable or fails,
    * host execution fallback is strictly prohibited.
    */
@@ -342,10 +344,12 @@ export class SandboxEngine {
     onOutput?: (chunk: string) => void
   ): Promise<{ exitCode: number; stdout: string; stderr: string; executionTimeMs: number }> {
     let sb: Sandbox | undefined;
-    const endpoint = (this.policy.cubeSandboxEndpoint || 'http://127.0.0.1:49982').replace(/\/+$/, '');
+    const endpoint = (this.policy.cubeSandboxEndpoint || 'http://127.0.0.1:3000').replace(/\/+$/, '');
+    const templateId = this.policy.cubeTemplateId || process.env.CUBE_TEMPLATE_ID || 'default-node20';
 
     try {
       sb = await Sandbox.create({
+        template: templateId,
         apiUrl: endpoint,
         config: {
           apiUrl: endpoint,
@@ -354,9 +358,16 @@ export class SandboxEngine {
         timeout: Math.round(this.policy.maxExecutionTimeMs / 1000)
       });
 
-      const res = await sb.commands.run(commandLine, {
+      // 1. Inbound Workspace Sync: Transfer local session files to remote microVM
+      await this.syncWorkspaceToSandbox(sessionDir, sb);
+
+      // 2. Command Execution: Run command inside isolated /workspace in microVM
+      const res = await sb.commands.run(`cd /workspace && ${commandLine}`, {
         timeoutMs: this.policy.maxExecutionTimeMs
       });
+
+      // 3. Outbound Workspace Sync: Transfer generated/modified artifacts back to host sessionDir
+      await this.syncSandboxToWorkspace(sessionDir, sb);
 
       const duration = Date.now() - startTime;
       const stdout = res.stdout || '';
@@ -395,6 +406,69 @@ export class SandboxEngine {
           await sb.kill();
         } catch {}
       }
+    }
+  }
+
+  /**
+   * Syncs local session files into the remote CubeSandbox microVM /workspace directory
+   */
+  private async syncWorkspaceToSandbox(sessionDir: string, sb: Sandbox): Promise<void> {
+    try {
+      try { await sb.commands.run('mkdir -p /workspace'); } catch {}
+
+      const walkDir = (currentDir: string): string[] => {
+        if (!fs.existsSync(currentDir)) return [];
+        const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+        let files: string[] = [];
+        for (const entry of entries) {
+          if (entry.name === '.git' || entry.name === 'node_modules' || entry.name === '.DS_Store') continue;
+          const fullPath = path.join(currentDir, entry.name);
+          if (entry.isDirectory()) {
+            files = files.concat(walkDir(fullPath));
+          } else if (entry.isFile()) {
+            files.push(fullPath);
+          }
+        }
+        return files;
+      };
+
+      const localFiles = walkDir(sessionDir);
+      for (const file of localFiles) {
+        const relPath = path.relative(sessionDir, file).replace(/\\/g, '/');
+        const targetPath = `/workspace/${relPath}`;
+        const content = fs.readFileSync(file, 'utf-8');
+        if (sb.files && typeof (sb.files as any).write === 'function') {
+          await (sb.files as any).write(targetPath, content);
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[CubeSandbox] Sync workspace to remote microVM warning: ${err.message}`);
+    }
+  }
+
+  /**
+   * Syncs generated artifacts from the remote CubeSandbox microVM /workspace back to host sessionDir
+   */
+  private async syncSandboxToWorkspace(sessionDir: string, sb: Sandbox): Promise<void> {
+    try {
+      const listRes = await sb.commands.run('find /workspace -type f');
+      if (!listRes.stdout) return;
+      const remoteFiles = listRes.stdout.split('\n').map(l => l.trim()).filter(l => l && l.startsWith('/workspace/'));
+      for (const rPath of remoteFiles) {
+        const relPath = rPath.replace(/^\/workspace\//, '');
+        if (relPath.startsWith('.git') || relPath.startsWith('node_modules') || relPath === '.DS_Store') continue;
+        if (sb.files && typeof (sb.files as any).read === 'function') {
+          try {
+            const content = await (sb.files as any).read(rPath);
+            const localTarget = path.join(sessionDir, relPath);
+            const localDir = path.dirname(localTarget);
+            if (!fs.existsSync(localDir)) fs.mkdirSync(localDir, { recursive: true });
+            fs.writeFileSync(localTarget, content, 'utf-8');
+          } catch {}
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[CubeSandbox] Sync remote microVM to host session warning: ${err.message}`);
     }
   }
 
