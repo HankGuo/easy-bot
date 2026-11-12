@@ -1,5 +1,7 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-import * as crypto from 'node:crypto';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { WebSocketClientTransport } from '@modelcontextprotocol/sdk/client/websocket.js';
 
 export interface MCPServerConfig {
   id: string;
@@ -10,6 +12,11 @@ export interface MCPServerConfig {
   args?: string[];
   env?: Record<string, string>;
   url?: string;
+  headers?: Record<string, string>;
+  auth?: {
+    type: 'bearer' | 'basic' | 'custom';
+    token?: string;
+  };
   status: 'CONNECTED' | 'DISCONNECTED' | 'ERROR';
   toolsCount: number;
 }
@@ -23,25 +30,17 @@ export interface MCPToolDefinition {
 
 export type MCPToolHandler = (args: Record<string, any>, context?: any) => Promise<string>;
 
-interface SSEServerSession {
-  url: string;
-  postUrl: string;
-  abortController: AbortController;
-}
-
 /**
- * Standard Model Context Protocol (MCP) Host Manager
- * Manages 1:1 client connections to local stdio, remote HTTP-SSE, and WebSocket MCP servers with full JSON-RPC 2.0 lifecycle
+ * Enterprise Model Context Protocol (MCP) Host Manager
+ * Powered by Anthropic Official @modelcontextprotocol/sdk
+ * Supports Stdio, HTTP-SSE (with custom Auth Headers), and WebSocket transports
  */
 export class MCPHostManager {
   private servers: Map<string, MCPServerConfig> = new Map();
-  private tools: Map<string, MCPToolDefinition> = new Map(); // toolName -> definition
-  private toolHandlers: Map<string, MCPToolHandler> = new Map(); // toolName -> execution handler
-  private childProcesses: Map<string, ChildProcess> = new Map();
-  private sseSessions: Map<string, SSEServerSession> = new Map();
-  private wsClients: Map<string, WebSocket> = new Map();
-  private pendingRequests: Map<string, { resolve: (res: any) => void; reject: (err: any) => void }> = new Map();
-  private nextRpcId = 1;
+  private tools: Map<string, MCPToolDefinition> = new Map();
+  private toolHandlers: Map<string, MCPToolHandler> = new Map();
+  private clients: Map<string, Client> = new Map();
+  private transports: Map<string, any> = new Map();
 
   constructor() {
     this.registerBuiltInTools();
@@ -162,75 +161,68 @@ export class MCPHostManager {
   }
 
   /**
-   * Registers and connects an external MCP Server via standard JSON-RPC 2.0 (stdio, sse, or websocket)
+   * Registers and connects an external MCP Server via official Anthropic MCP SDK
    */
   public async registerServer(config: Omit<MCPServerConfig, 'status' | 'toolsCount'>): Promise<MCPServerConfig> {
-    if (config.transport === 'stdio' && config.command) {
-      return this.connectStdioServer(config);
-    } else if (config.transport === 'sse' && config.url) {
-      return this.connectSSEServer(config);
-    } else if (config.transport === 'websocket' && config.url) {
-      return this.connectWebSocketServer(config);
-    }
-
-    const fullConfig: MCPServerConfig = {
+    const serverConfig: MCPServerConfig = {
       ...config,
       status: 'DISCONNECTED',
       toolsCount: 0
     };
-    this.servers.set(config.id, fullConfig);
-    return fullConfig;
-  }
 
-  /**
-   * Connects an external MCP Server via local Stdio
-   */
-  private async connectStdioServer(config: Omit<MCPServerConfig, 'status' | 'toolsCount'>): Promise<MCPServerConfig> {
     try {
-      const proc = spawn(config.command!, config.args || [], {
-        env: { ...process.env, ...(config.env || {}) },
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
+      const client = new Client(
+        { name: 'EasyBot-Enterprise', version: '2.5.0' },
+        { capabilities: {} }
+      );
 
-      this.childProcesses.set(config.id, proc);
+      let transport: any;
 
-      let buffer = '';
-      proc.stdout?.on('data', (chunk) => {
-        buffer += chunk.toString('utf-8');
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          this.handleIncomingRpcMessage(trimmed);
+      if (config.transport === 'stdio' && config.command) {
+        const cleanEnv: Record<string, string> = {};
+        for (const [k, v] of Object.entries(process.env)) {
+          if (typeof v === 'string') cleanEnv[k] = v;
         }
-      });
+        if (config.env) {
+          for (const [k, v] of Object.entries(config.env)) {
+            if (typeof v === 'string') cleanEnv[k] = v;
+          }
+        }
+        transport = new StdioClientTransport({
+          command: config.command,
+          args: config.args || [],
+          env: cleanEnv
+        });
+      } else if (config.transport === 'sse' && config.url) {
+        // Build Auth Headers
+        const headers: Record<string, string> = { ...(config.headers || {}) };
+        if (config.auth?.token) {
+          if (config.auth.type === 'bearer') {
+            headers['Authorization'] = `Bearer ${config.auth.token}`;
+          } else if (config.auth.type === 'basic') {
+            headers['Authorization'] = `Basic ${config.auth.token}`;
+          } else {
+            headers['X-API-Key'] = config.auth.token;
+          }
+        }
 
-      proc.on('error', (err) => {
-        console.warn(`[MCP Server ${config.id}] process error:`, err.message);
-        const s = this.servers.get(config.id);
-        if (s) s.status = 'ERROR';
-      });
+        transport = new SSEClientTransport(new URL(config.url), {
+          eventSourceInit: { headers } as any,
+          requestInit: { headers }
+        });
+      } else if (config.transport === 'websocket' && config.url) {
+        transport = new WebSocketClientTransport(new URL(config.url));
+      } else {
+        throw new Error(`Unsupported or unconfigured MCP transport: ${config.transport}`);
+      }
 
-      proc.on('exit', (code) => {
-        console.log(`[MCP Server ${config.id}] exited with code ${code}`);
-        const s = this.servers.get(config.id);
-        if (s) s.status = 'DISCONNECTED';
-      });
+      await client.connect(transport);
+      this.clients.set(config.id, client);
+      this.transports.set(config.id, transport);
 
-      // Step 1: Standard JSON-RPC initialize handshake
-      await this.sendStdioJsonRpc(proc, 'initialize', {
-        protocolVersion: '2024-11-05',
-        capabilities: {},
-        clientInfo: { name: 'EasyBot', version: '2.2.0' }
-      });
-
-      // Step 2: Send initialized notification
-      proc.stdin?.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }) + '\n');
-
-      // Step 3: Discover available tools from external MCP server
-      const toolsRes = await this.sendStdioJsonRpc(proc, 'tools/list', {});
-      const discoveredTools: any[] = toolsRes?.tools || [];
+      // Discover Tools using official MCP SDK
+      const listRes = await client.listTools();
+      const discoveredTools = listRes.tools || [];
 
       for (const t of discoveredTools) {
         this.tools.set(t.name, {
@@ -241,378 +233,68 @@ export class MCPHostManager {
         });
       }
 
-      const fullConfig: MCPServerConfig = {
-        ...config,
-        status: 'CONNECTED',
-        toolsCount: discoveredTools.length
-      };
-      this.servers.set(config.id, fullConfig);
-      return fullConfig;
+      serverConfig.status = 'CONNECTED';
+      serverConfig.toolsCount = discoveredTools.length;
+      this.servers.set(config.id, serverConfig);
+      return serverConfig;
     } catch (err: any) {
       console.warn(`[MCP Server ${config.id}] connection failed:`, err.message);
-      const fullConfig: MCPServerConfig = {
-        ...config,
-        status: 'ERROR',
-        toolsCount: 0
-      };
-      this.servers.set(config.id, fullConfig);
-      return fullConfig;
+      serverConfig.status = 'ERROR';
+      serverConfig.toolsCount = 0;
+      this.servers.set(config.id, serverConfig);
+      return serverConfig;
     }
   }
 
   /**
-   * Connects a remote MCP Server via HTTP Server-Sent Events (SSE)
-   */
-  private async connectSSEServer(config: Omit<MCPServerConfig, 'status' | 'toolsCount'>): Promise<MCPServerConfig> {
-    try {
-      const abortController = new AbortController();
-      const sseUrl = config.url!;
-      let postUrl = sseUrl; // Default post URL is same or discovered via endpoint event
-
-      // Probe remote SSE endpoint
-      const response = await fetch(sseUrl, {
-        headers: { 'Accept': 'text/event-stream' },
-        signal: abortController.signal
-      });
-
-      if (!response.ok) {
-        throw new Error(`Remote SSE server returned HTTP ${response.status}`);
-      }
-
-      // Read SSE stream in background
-      (async () => {
-        try {
-          const reader = response.body?.getReader();
-          if (!reader) return;
-          const decoder = new TextDecoder();
-          let sseBuffer = '';
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            sseBuffer += decoder.decode(value, { stream: true });
-            const chunks = sseBuffer.split('\n\n');
-            sseBuffer = chunks.pop() || '';
-
-            for (const chunk of chunks) {
-              const lines = chunk.split('\n');
-              let eventType = 'message';
-              let data = '';
-              for (const line of lines) {
-                if (line.startsWith('event:')) eventType = line.slice(6).trim();
-                else if (line.startsWith('data:')) data += line.slice(5).trim();
-              }
-              if (eventType === 'endpoint' && data) {
-                try {
-                  const resolved = new URL(data, sseUrl).toString();
-                  postUrl = resolved;
-                  const s = this.sseSessions.get(config.id);
-                  if (s) s.postUrl = resolved;
-                } catch {}
-              } else if (data) {
-                this.handleIncomingRpcMessage(data);
-              }
-            }
-          }
-        } catch (err: any) {
-          if (err.name !== 'AbortError') {
-            console.warn(`[MCP SSE ${config.id}] stream error:`, err.message);
-            const s = this.servers.get(config.id);
-            if (s) s.status = 'ERROR';
-          }
-        }
-      })();
-
-      const session: SSEServerSession = {
-        url: sseUrl,
-        postUrl,
-        abortController
-      };
-      this.sseSessions.set(config.id, session);
-
-      // Initialize handshake via POST
-      await this.sendHttpJsonRpc(session, 'initialize', {
-        protocolVersion: '2024-11-05',
-        capabilities: {},
-        clientInfo: { name: 'EasyBot', version: '2.2.0' }
-      });
-
-      // Discover tools
-      const toolsRes = await this.sendHttpJsonRpc(session, 'tools/list', {});
-      const discoveredTools: any[] = toolsRes?.tools || [];
-
-      for (const t of discoveredTools) {
-        this.tools.set(t.name, {
-          name: t.name,
-          description: t.description || '',
-          serverId: config.id,
-          inputSchema: t.inputSchema || {}
-        });
-      }
-
-      const fullConfig: MCPServerConfig = {
-        ...config,
-        status: 'CONNECTED',
-        toolsCount: discoveredTools.length
-      };
-      this.servers.set(config.id, fullConfig);
-      return fullConfig;
-    } catch (err: any) {
-      console.warn(`[MCP SSE ${config.id}] connection failed:`, err.message);
-      const fullConfig: MCPServerConfig = {
-        ...config,
-        status: 'ERROR',
-        toolsCount: 0
-      };
-      this.servers.set(config.id, fullConfig);
-      return fullConfig;
-    }
-  }
-
-  /**
-   * Connects a remote MCP Server via WebSocket
-   */
-  private async connectWebSocketServer(config: Omit<MCPServerConfig, 'status' | 'toolsCount'>): Promise<MCPServerConfig> {
-    try {
-      const ws = new WebSocket(config.url!);
-
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('WebSocket connection timeout')), 8000);
-        ws.onopen = () => {
-          clearTimeout(timer);
-          resolve();
-        };
-        ws.onerror = (err: any) => {
-          clearTimeout(timer);
-          reject(new Error(err.message || 'WebSocket connection error'));
-        };
-      });
-
-      this.wsClients.set(config.id, ws);
-
-      ws.onmessage = (event) => {
-        const text = typeof event.data === 'string' ? event.data : event.data.toString();
-        this.handleIncomingRpcMessage(text);
-      };
-
-      ws.onerror = (err: any) => {
-        console.warn(`[MCP WS ${config.id}] error:`, err.message);
-        const s = this.servers.get(config.id);
-        if (s) s.status = 'ERROR';
-      };
-
-      ws.onclose = () => {
-        console.log(`[MCP WS ${config.id}] disconnected`);
-        const s = this.servers.get(config.id);
-        if (s) s.status = 'DISCONNECTED';
-      };
-
-      // Step 1: Handshake
-      await this.sendWsJsonRpc(ws, 'initialize', {
-        protocolVersion: '2024-11-05',
-        capabilities: {},
-        clientInfo: { name: 'EasyBot', version: '2.2.0' }
-      });
-
-      // Step 2: Initialized notification
-      ws.send(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }));
-
-      // Step 3: Discover tools
-      const toolsRes = await this.sendWsJsonRpc(ws, 'tools/list', {});
-      const discoveredTools: any[] = toolsRes?.tools || [];
-
-      for (const t of discoveredTools) {
-        this.tools.set(t.name, {
-          name: t.name,
-          description: t.description || '',
-          serverId: config.id,
-          inputSchema: t.inputSchema || {}
-        });
-      }
-
-      const fullConfig: MCPServerConfig = {
-        ...config,
-        status: 'CONNECTED',
-        toolsCount: discoveredTools.length
-      };
-      this.servers.set(config.id, fullConfig);
-      return fullConfig;
-    } catch (err: any) {
-      console.warn(`[MCP WS ${config.id}] connection failed:`, err.message);
-      const fullConfig: MCPServerConfig = {
-        ...config,
-        status: 'ERROR',
-        toolsCount: 0
-      };
-      this.servers.set(config.id, fullConfig);
-      return fullConfig;
-    }
-  }
-
-  private handleIncomingRpcMessage(raw: string) {
-    try {
-      const msg = JSON.parse(raw);
-      if (msg.id && this.pendingRequests.has(String(msg.id))) {
-        const { resolve, reject } = this.pendingRequests.get(String(msg.id))!;
-        this.pendingRequests.delete(String(msg.id));
-        if (msg.error) {
-          reject(new Error(msg.error.message || JSON.stringify(msg.error)));
-        } else {
-          resolve(msg.result);
-        }
-      }
-    } catch {
-      // Ignore partial or unparseable frames
-    }
-  }
-
-  /**
-   * Invokes any registered tool call (Builtin Handler, Stdio, SSE, or WebSocket)
+   * Invokes any registered tool call via official Anthropic MCP SDK or registered handler
    */
   public async callTool(toolName: string, args: Record<string, any>, context?: any): Promise<string> {
-    // 1. Direct Built-in / In-Memory Handler execution
+    // 1. Direct In-Memory Handler execution
     if (this.toolHandlers.has(toolName)) {
       return await this.toolHandlers.get(toolName)!(args, context);
     }
 
     const tool = this.tools.get(toolName);
-    if (!tool) throw new Error(`Tool "${toolName}" not found in MCP registry or active tool handlers`);
-
-    // 2. Stdio Subprocess Call
-    const proc = this.childProcesses.get(tool.serverId);
-    if (proc) {
-      const result = await this.sendStdioJsonRpc(proc, 'tools/call', {
-        name: toolName,
-        arguments: args
-      });
-      return this.formatToolResult(result);
+    if (!tool) {
+      throw new Error(`Tool "${toolName}" not found in MCP registry or active tool handlers`);
     }
 
-    // 3. SSE Remote Call
-    const sse = this.sseSessions.get(tool.serverId);
-    if (sse) {
-      const result = await this.sendHttpJsonRpc(sse, 'tools/call', {
-        name: toolName,
-        arguments: args
-      });
-      return this.formatToolResult(result);
+    // 2. Official MCP Client Execution
+    const client = this.clients.get(tool.serverId);
+    if (!client) {
+      throw new Error(`MCP Client for server "${tool.serverId}" is not connected or active`);
     }
 
-    // 4. WebSocket Remote Call
-    const ws = this.wsClients.get(tool.serverId);
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      const result = await this.sendWsJsonRpc(ws, 'tools/call', {
-        name: toolName,
-        arguments: args
-      });
-      return this.formatToolResult(result);
-    }
-
-    throw new Error(`MCP Server connection for server "${tool.serverId}" is not active`);
-  }
-
-  private formatToolResult(result: any): string {
-    if (Array.isArray(result?.content)) {
-      return result.content.map((c: any) => c.text || JSON.stringify(c)).join('\n');
-    }
-    return typeof result === 'string' ? result : JSON.stringify(result ?? {});
-  }
-
-  private async sendStdioJsonRpc(proc: ChildProcess, method: string, params: any = {}): Promise<any> {
-    const id = this.nextRpcId++;
-    const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n';
-
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pendingRequests.delete(String(id));
-        reject(new Error(`MCP Stdio timeout on ${method}`));
-      }, 15000);
-
-      this.pendingRequests.set(String(id), {
-        resolve: (val) => { clearTimeout(timer); resolve(val); },
-        reject: (err) => { clearTimeout(timer); reject(err); }
-      });
-
-      try {
-        proc.stdin?.write(payload);
-      } catch (err) {
-        clearTimeout(timer);
-        this.pendingRequests.delete(String(id));
-        reject(err);
-      }
-    });
-  }
-
-  private async sendHttpJsonRpc(session: SSEServerSession, method: string, params: any = {}): Promise<any> {
-    const id = this.nextRpcId++;
-    const payload = { jsonrpc: '2.0', id, method, params };
-
-    const response = await fetch(session.postUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(15000)
+    const res = await client.callTool({
+      name: toolName,
+      arguments: args
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error ${response.status} from MCP Server`);
+    if (Array.isArray(res.content)) {
+      return res.content.map((c: any) => c.text || JSON.stringify(c)).join('\n');
     }
-
-    const json: any = await response.json();
-    if (json.error) {
-      throw new Error(json.error.message || JSON.stringify(json.error));
-    }
-    return json.result;
-  }
-
-  private async sendWsJsonRpc(ws: WebSocket, method: string, params: any = {}): Promise<any> {
-    const id = this.nextRpcId++;
-    const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params });
-
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pendingRequests.delete(String(id));
-        reject(new Error(`MCP WebSocket timeout on ${method}`));
-      }, 15000);
-
-      this.pendingRequests.set(String(id), {
-        resolve: (val) => { clearTimeout(timer); resolve(val); },
-        reject: (err) => { clearTimeout(timer); reject(err); }
-      });
-
-      try {
-        ws.send(payload);
-      } catch (err) {
-        clearTimeout(timer);
-        this.pendingRequests.delete(String(id));
-        reject(err);
-      }
-    });
+    return typeof res === 'string' ? res : JSON.stringify(res ?? {});
   }
 
   public async disconnectServer(serverId: string): Promise<boolean> {
-    // 1. Stdio
-    const proc = this.childProcesses.get(serverId);
-    if (proc) {
-      proc.kill('SIGTERM');
-      this.childProcesses.delete(serverId);
+    const client = this.clients.get(serverId);
+    if (client) {
+      try {
+        await client.close();
+      } catch {}
+      this.clients.delete(serverId);
     }
 
-    // 2. SSE
-    const sse = this.sseSessions.get(serverId);
-    if (sse) {
-      sse.abortController.abort();
-      this.sseSessions.delete(serverId);
+    const transport = this.transports.get(serverId);
+    if (transport) {
+      try {
+        await transport.close();
+      } catch {}
+      this.transports.delete(serverId);
     }
 
-    // 3. WebSocket
-    const ws = this.wsClients.get(serverId);
-    if (ws) {
-      try { ws.close(); } catch {}
-      this.wsClients.delete(serverId);
-    }
-
-    // Remove tools registered by this server
+    // Unregister tools from this server
     for (const [toolName, tool] of this.tools.entries()) {
       if (tool.serverId === serverId) {
         this.tools.delete(toolName);

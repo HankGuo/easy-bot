@@ -1,4 +1,5 @@
 import { PDFParse } from 'pdf-parse';
+import { WeKnoraDriver } from './weknora-driver.js';
 
 export interface DocumentChunk {
   id: string;
@@ -41,14 +42,28 @@ export class HybridRAGEngine {
   private docLengths: Map<string, number> = new Map();
   private avgDocLength: number = 0;
   private embeddingConfig?: EmbeddingConfig;
+  private weknoraDriver?: WeKnoraDriver;
 
   // BM25 parameters
   private readonly k1 = 1.5;
   private readonly b = 0.75;
   private readonly rrfK = 60; // Reciprocal Rank Fusion constant
 
-  constructor(embeddingConfig?: EmbeddingConfig) {
+  constructor(embeddingConfig?: EmbeddingConfig, weknoraDriver?: WeKnoraDriver) {
     this.embeddingConfig = embeddingConfig;
+    if (weknoraDriver) {
+      this.weknoraDriver = weknoraDriver;
+    } else if (process.env.WEKNORA_URL) {
+      this.weknoraDriver = new WeKnoraDriver();
+    }
+  }
+
+  public setWeKnoraDriver(driver: WeKnoraDriver) {
+    this.weknoraDriver = driver;
+  }
+
+  public getWeKnoraDriver(): WeKnoraDriver | undefined {
+    return this.weknoraDriver;
   }
 
   public setEmbeddingConfig(config: EmbeddingConfig) {
@@ -216,6 +231,19 @@ export class HybridRAGEngine {
     topK: number = 5,
     targetSpaceId?: string
   ): Promise<RetrievalResult[]> {
+    // 1. Try Tencent WeKnora driver if configured
+    if (this.weknoraDriver) {
+      try {
+        const weknoraHits = await this.weknoraDriver.searchHybrid(queryText, allowedGroupIds, topK, targetSpaceId);
+        if (weknoraHits && weknoraHits.length > 0) {
+          return weknoraHits;
+        }
+      } catch (err: any) {
+        console.warn('[HybridRAG] Tencent WeKnora cluster fallback to embedded engine:', err.message);
+      }
+    }
+
+    // 2. Embedded Hybrid Engine Fallback
     let queryEmbedding: number[] | undefined;
     if (this.embeddingConfig && this.embeddingConfig.model) {
       const emb = await this.generateEmbedding(queryText);
@@ -525,7 +553,8 @@ export class HybridRAGEngine {
       vocabularySize: this.invertedIndex.size,
       avgDocLength: Math.round(this.avgDocLength),
       retrievalMode: hasEmbeddings ? 'Hybrid (Okapi BM25 + Dense Vectors)' : 'Pure Okapi BM25 (Deterministic Lexical)',
-      vectorStatus: hasEmbeddings ? 'Active' : 'Not Configured (Operating in High-Precision BM25 Mode)'
+      vectorStatus: hasEmbeddings ? 'Active' : 'Not Configured (Operating in High-Precision BM25 Mode)',
+      weknoraDriver: this.weknoraDriver ? 'Active (Tencent WeKnora Enterprise Driver)' : 'Standby (Embedded High-Precision Mode)'
     };
   }
 }

@@ -12,6 +12,7 @@ workspace/
 .env
 .env.*
 !.env.example
+!.env.enterprise.example
 
 # OS and logs
 .DS_Store

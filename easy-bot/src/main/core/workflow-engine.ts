@@ -4,6 +4,7 @@ import { SandboxEngine } from './sandbox-engine.js';
 import { HybridRAGEngine } from './hybrid-rag.js';
 import { MCPHostManager } from './mcp-host.js';
 import { ModelClient } from './model-client.js';
+import { SecurityContext } from './auth/security-context.js';
 
 export type WorkflowNodeType = 
   | 'START' 
@@ -98,7 +99,8 @@ export class WorkflowEngine {
   public async executeWorkflow(
     workflowId: string,
     initialInputs: Record<string, any>,
-    sessionId: string = 'workflow-run'
+    sessionId: string = 'workflow-run',
+    securityContext?: SecurityContext
   ): Promise<WorkflowRunResult> {
     const wf = this.workflows.get(workflowId);
     if (!wf) throw new Error(`Workflow ${workflowId} not found`);
@@ -133,7 +135,8 @@ export class WorkflowEngine {
 
           case 'KNOWLEDGE_RETRIEVAL': {
             const query = this.interpolate(cfg.queryTemplate || '', context);
-            const hits = this.rag.query(query, 3);
+            const allowedGroups = securityContext?.groups || [];
+            const hits = await this.rag.queryHybridAsync(query, allowedGroups, 3);
             nodeOutput = hits.map(h => ({
               doc: h.chunk.documentTitle,
               content: h.chunk.content,
@@ -195,8 +198,8 @@ export class WorkflowEngine {
               const execRes = await this.sandbox.executeCommand(sessionId, cmd, undefined, true);
               nodeOutput = execRes.stdout.trim() || execRes.stderr.trim();
             } else {
-              // Real dispatch to external MCP server or registered custom tool
-              nodeOutput = await this.mcp.callTool(toolName, toolArgs, { sessionId });
+              // Real dispatch to external MCP server or registered custom tool with SecurityContext
+              nodeOutput = await this.mcp.callTool(toolName, toolArgs, { sessionId, context: securityContext });
             }
             if (cfg.outputKey) context[cfg.outputKey] = nodeOutput;
             break;

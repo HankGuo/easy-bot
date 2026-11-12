@@ -339,11 +339,12 @@ test('12. Enterprise IM Suite, Specialists & Connectors', async () => {
   const experts = im.listExperts();
   const connectors = im.listConnectors();
 
-  assert.ok(channels.length >= 4);
-  assert.ok(experts.length >= 6);
+  assert.ok(channels.length >= 2);
+  assert.ok(experts.length >= 4);
   assert.ok(connectors.length >= 5);
 
-  assert.ok(experts.some(e => e.name === '马工'));
+  assert.ok(experts.some(e => e.name === '张云峰' || e.name === '李工'));
+  assert.ok(connectors.some(c => c.type === 'octop'));
   assert.ok(connectors.some(c => c.type === 'wecom'));
 
   // Test connector probe (honest unconfigured detection)
@@ -357,7 +358,15 @@ test('12. Enterprise IM Suite, Specialists & Connectors', async () => {
 
 test('13. Campus LDAP Authentication Provider & Filter Escaping', async () => {
   const { LDAPProvider } = await import('../core/auth/ldap-provider.js');
-  const provider = new LDAPProvider({ simulationMode: true });
+  const { EduPack } = await import('../packs/edu/index.js');
+  const provider = new LDAPProvider({ simulationMode: true }, (attrs) => {
+    const raw = EduPack.identityMapping!(attrs);
+    return {
+      role: raw.role === 'manager' ? 'teacher_pi' : 'student',
+      department: raw.department,
+      groups: raw.groups || []
+    };
+  });
 
   // Test filter injection escaping
   const maliciousInput = 'admin)(|(uid=*';
@@ -480,7 +489,7 @@ test('16. IM Gateway Inbound Dispatch & Specialist Routing', async () => {
     content: '请教关于国家自然科学基金立项和学术论文引用的规范要求'
   });
 
-  assert.ok(wecomInbound.expertName.includes('张导师') || wecomInbound.expertName.includes('专家'));
+  assert.ok(wecomInbound.expertName.includes('张云峰') || wecomInbound.expertName.includes('架构师') || wecomInbound.expertName.includes('专家'));
   assert.ok(wecomInbound.reply.length > 0);
 
   fs.rmSync(tmpWs, { recursive: true, force: true });

@@ -94,9 +94,23 @@ const skills = new SkillLoader(SKILLS_DIR);
 const agentGroup = new AgentGroupCoordinator(sandbox, router, modelClient);
 const imEngine = new IMEngine(DATA_DIR, modelClient, sandbox, rag);
 const packManager = new DomainPackManager();
+
+// LDAP Provider: simulation enabled by default in local dev when no remote LDAP_URL configured
+const isLdapSimulated = process.env.LDAP_SIMULATION_MODE === 'true' || (!process.env.LDAP_URL && process.env.NODE_ENV !== 'production');
+const ldapProvider = new LDAPProvider({
+  enabled: Boolean(process.env.LDAP_URL),
+  url: process.env.LDAP_URL || 'ldap://127.0.0.1:389',
+  searchBase: process.env.LDAP_SEARCH_BASE || 'dc=enterprise,dc=com',
+  simulationMode: isLdapSimulated
+});
+
 (async () => {
   try {
     await packManager.loadActivePacks(process.env.EASYBOT_PACKS, { mcp, im: imEngine, workflow, rag });
+    const mapper = packManager.getIdentityMapper();
+    if (mapper) {
+      ldapProvider.setIdentityMapper(mapper);
+    }
     console.log(`[DomainPacks] Active domain packs mounted: ${packManager.listActivePacks().map(p => p.id).join(', ')}`);
   } catch (err: any) {
     console.warn('[DomainPacks] Failed to mount domain packs:', err.message);
@@ -106,41 +120,32 @@ const packManager = new DomainPackManager();
 const rateLimiter = new RateLimiter();
 setInterval(() => rateLimiter.cleanup(), 5 * 60 * 1000);
 
-// LDAP Provider: simulation disabled by default, enabled only when explicit
-const isLdapSimulated = process.env.LDAP_SIMULATION_MODE === 'true';
-const ldapProvider = new LDAPProvider({
-  enabled: Boolean(process.env.LDAP_URL),
-  url: process.env.LDAP_URL || 'ldap://127.0.0.1:389',
-  searchBase: process.env.LDAP_SEARCH_BASE || 'dc=univ,dc=edu,dc=cn',
-  simulationMode: isLdapSimulated
-});
-
-// Seed Initial Campus & Enterprise Identity Hierarchy if fresh
+// Seed Initial Enterprise Identity Hierarchy if fresh
 if (store.listUsers().length === 0) {
   const initialAdminPass = process.env.EASYBOT_ADMIN_PASSWORD || crypto.randomBytes(16).toString('hex');
   const admin = store.createUser({
     id: 'usr_admin',
     username: 'admin',
     passwordHash: CryptoUtil.hashPassword(initialAdminPass),
-    displayName: '系统管理员 (Super Admin)',
-    email: 'admin@univ.edu.cn',
+    displayName: '企业系统管理员 (Super Admin)',
+    email: 'admin@enterprise.local',
     role: 'superadmin',
     authSource: 'local',
-    department: '信息化建设与网络安全中心'
+    department: 'IT 基础设施与信息安全中心'
   });
 
   const gPublic = store.createGroup({
     id: 'grp_all',
-    name: '全校公共协作空间',
-    departmentOu: 'univ_public',
-    description: '面向全校教职员工与学生的公共服务与通用规章'
+    name: '企业通用协作空间',
+    departmentOu: 'corp_public',
+    description: '面向全体企业员工的公共服务与通用规章'
   });
 
   const gLab = store.createGroup({
     id: 'grp_ai_lab',
-    name: 'AI国家重点实验室涉密课题组',
-    departmentOu: 'cs_ai_lab',
-    description: '张教授团队未公开实验成果、国自然基金与专利库'
+    name: '研发核心资产空间',
+    departmentOu: 'corp_r_and_d',
+    description: '核心研发、算法与知识产权保护空间'
   });
 
   store.addUserToGroup(admin.id, gPublic.id);
@@ -193,10 +198,10 @@ function resolveUser(req: http.IncomingMessage, url: URL): JWTPayload | null {
       return {
         userId: 'usr_admin',
         username: 'admin',
-        displayName: '系统管理员 (Super Admin)',
+        displayName: '企业系统管理员 (Super Admin)',
         role: 'superadmin',
         authSource: 'master_key',
-        department: '信息化安全中心',
+        department: 'IT 基础设施与信息安全中心',
         groups: ['grp_all', 'grp_ai_lab']
       };
     }
@@ -1216,7 +1221,8 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
 
         case 'run_workflow': {
           const { workflowId, inputs, sessionId } = payload;
-          const runRes = await workflow.executeWorkflow(workflowId, inputs || {}, sessionId);
+          const userSecContext = CryptoUtil.toSecurityContext(wsUser);
+          const runRes = await workflow.executeWorkflow(workflowId, inputs || {}, sessionId, userSecContext);
           ws.send(JSON.stringify({ type: 'workflow_finished', id, payload: runRes }));
           break;
         }

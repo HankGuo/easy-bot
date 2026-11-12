@@ -11,8 +11,8 @@ export const EduPack: DomainPack = {
     dean: 'admin'
   },
   identityMapping: (attrs: Record<string, any>) => {
-    const ou = String(attrs.ou || attrs.department || '').toLowerCase();
-    const isFaculty = ou.includes('faculty') || ou.includes('teacher') || ou.includes('lab');
+    const ou = String(attrs.ou || attrs.department || attrs.username || '').toLowerCase();
+    const isFaculty = ou.includes('faculty') || ou.includes('teacher') || ou.includes('lab') || ou.startsWith('t_') || ou.includes('prof');
     return {
       role: isFaculty ? 'manager' : 'member',
       department: attrs.department || (isFaculty ? '人工智能国家重点实验室' : '计算机科学与技术学院'),

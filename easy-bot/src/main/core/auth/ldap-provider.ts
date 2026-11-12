@@ -1,5 +1,5 @@
 import { Client } from 'ldapts';
-import { normalizeRole, EnterpriseRole } from './security-context.js';
+import { normalizeRole, EnterpriseRole, SecurityContext } from './security-context.js';
 
 export interface LDAPConfig {
   enabled: boolean;
@@ -9,8 +9,8 @@ export interface LDAPConfig {
   searchBase: string;
   userFilter: string; // e.g. "(&(objectClass=person)(uid={username}))"
   attributes?: string[];
-  roleMapping?: Record<string, string>; // e.g. { "ou=faculty": "teacher_pi", "ou=students": "student" }
-  simulationMode?: boolean; // For offline campus demo & testing
+  roleMapping?: Record<string, string>; // e.g. { "ou=managers": "manager", "ou=members": "member" }
+  simulationMode?: boolean; // For offline enterprise demo & testing
 }
 
 export interface LDAPUserRecord {
@@ -23,25 +23,33 @@ export interface LDAPUserRecord {
   groups: string[];
 }
 
+export type LDAPIdentityMapper = (attrs: Record<string, any>) => Partial<SecurityContext> | { role: string; department?: string; groups: string[]; displayName?: string };
+
 export class LDAPProvider {
   private config: LDAPConfig;
+  private customMapper?: LDAPIdentityMapper;
 
-  constructor(config?: Partial<LDAPConfig>) {
+  constructor(config?: Partial<LDAPConfig>, customMapper?: LDAPIdentityMapper) {
+    this.customMapper = customMapper;
     this.config = {
       enabled: config?.enabled ?? false,
       url: config?.url || 'ldap://127.0.0.1:389',
-      searchBase: config?.searchBase || 'dc=univ,dc=edu,dc=cn',
+      searchBase: config?.searchBase || 'dc=enterprise,dc=com',
       userFilter: config?.userFilter || '(&(objectClass=person)(uid={username}))',
       attributes: config?.attributes || ['dn', 'uid', 'cn', 'displayName', 'mail', 'department', 'ou', 'memberOf'],
       roleMapping: config?.roleMapping || {
         'ou=managers': 'manager',
-        'ou=faculty': 'teacher_pi',
         'ou=admin': 'admin',
-        'ou=students': 'student',
-        'ou=members': 'member'
+        'ou=members': 'member',
+        'ou=engineering': 'manager',
+        'ou=contractors': 'guest'
       },
       simulationMode: config?.simulationMode ?? false
     };
+  }
+
+  public setIdentityMapper(mapper: LDAPIdentityMapper) {
+    this.customMapper = mapper;
   }
 
   public updateConfig(config: Partial<LDAPConfig>) {
@@ -73,22 +81,35 @@ export class LDAPProvider {
 
     const safeUsername = LDAPProvider.escapeFilter(username);
 
-    // 1. Campus Simulation Mode for offline air-gapped demo & tests
+    // 1. Simulation Mode for offline air-gapped demo & tests
     if (this.config.simulationMode) {
       if (password.length >= 6) {
-        const isFaculty = safeUsername.startsWith('t') || safeUsername.includes('prof') || safeUsername.includes('tea') || safeUsername.includes('mgr');
-        const role = isFaculty
-          ? (this.config.roleMapping?.['ou=faculty'] || this.config.roleMapping?.['ou=managers'] || 'manager')
-          : (this.config.roleMapping?.['ou=students'] || this.config.roleMapping?.['ou=members'] || 'member');
-        const department = isFaculty ? '人工智能国家重点实验室' : '计算机科学与技术学院';
+        if (this.customMapper) {
+          const custom = this.customMapper({ username: safeUsername });
+          return {
+            username: safeUsername,
+            displayName: custom.displayName || `用户 (${safeUsername})`,
+            email: `${safeUsername}@enterprise.local`,
+            department: custom.department || '业务部门',
+            role: custom.role || 'member',
+            dn: `uid=${safeUsername},ou=users,${this.config.searchBase}`,
+            groups: custom.groups || ['grp_all']
+          };
+        }
+
+        const isLead = safeUsername.startsWith('m') || safeUsername.includes('lead') || safeUsername.includes('mgr') || safeUsername.startsWith('t') || safeUsername.includes('prof');
+        const role = isLead
+          ? (this.config.roleMapping?.['ou=managers'] || 'manager')
+          : (this.config.roleMapping?.['ou=members'] || 'member');
+        const department = isLead ? '技术研发与核心工程中心' : '业务与综合技术部';
         return {
           username: safeUsername,
-          displayName: isFaculty ? `张教授 (${safeUsername})` : `学生小李 (${safeUsername})`,
-          email: `${safeUsername}@univ.edu.cn`,
+          displayName: isLead ? `项目主管 (${safeUsername})` : `工程师 (${safeUsername})`,
+          email: `${safeUsername}@enterprise.local`,
           department,
           role,
-          dn: `uid=${safeUsername},ou=${isFaculty ? 'faculty' : 'students'},${this.config.searchBase}`,
-          groups: isFaculty ? ['grp_ai_lab', 'grp_college_faculty'] : ['grp_college_students']
+          dn: `uid=${safeUsername},ou=${isLead ? 'managers' : 'members'},${this.config.searchBase}`,
+          groups: isLead ? ['grp_all', 'grp_r_and_d'] : ['grp_all']
         };
       }
       return null;

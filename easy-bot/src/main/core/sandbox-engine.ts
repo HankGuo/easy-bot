@@ -6,7 +6,9 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 export interface SandboxPolicy {
   enabled: boolean;
   isolationLevel: 'strict' | 'workspace-only' | 'audit-only';
-  backend: 'local' | 'docker';
+  backend: 'cubesandbox' | 'docker' | 'local';
+  cubeSandboxEndpoint?: string;
+  cubeSandboxApiKey?: string;
   dockerImage?: string;
   allowedCommands: string[];
   blockedPatterns: RegExp[];
@@ -73,8 +75,16 @@ export class SandboxEngine {
     return SandboxEngine.dockerAvailableCache;
   }
 
+  public static sanitizeSessionId(sessionId: string): string {
+    const cleaned = (sessionId || '').trim();
+    if (!cleaned || !/^[a-zA-Z0-9_-]{1,128}$/.test(cleaned)) {
+      throw new Error(`Security Violation: Invalid or malicious sessionId format: "${sessionId}"`);
+    }
+    return cleaned;
+  }
+
   public static parseCommandBinaries(commandLine: string): string[] {
-    const segments = commandLine.split(/[;&|]+/);
+    const segments = commandLine.split(/[;&|`$()\n\r]+/);
     const binaries: string[] = [];
 
     for (const rawSeg of segments) {
@@ -101,8 +111,15 @@ export class SandboxEngine {
     }
 
     const configuredBackend = policy?.backend || (process.env.EASYBOT_SANDBOX_BACKEND as any);
-    const defaultBackend: 'docker' | 'local' = configuredBackend || 'local';
-    const defaultAllowed = defaultBackend === 'docker'
+    let defaultBackend: 'cubesandbox' | 'docker' | 'local' = configuredBackend;
+    if (!defaultBackend) {
+      if (process.env.CUBESANDBOX_URL || policy?.cubeSandboxEndpoint) {
+        defaultBackend = 'cubesandbox';
+      } else {
+        defaultBackend = 'local';
+      }
+    }
+    const defaultAllowed = (defaultBackend === 'docker' || defaultBackend === 'cubesandbox')
       ? ['node', 'npm', 'pnpm', 'git', 'cat', 'ls', 'pwd', 'echo', 'grep', 'find', 'mkdir', 'rm', 'cp', 'mv', 'python3', 'python', 'tar', 'unzip', 'head', 'tail', 'diff', 'sort', 'uniq', 'wc', 'touch']
       : [...SAFE_LOCAL_COMMANDS];
 
@@ -110,6 +127,8 @@ export class SandboxEngine {
       enabled: true,
       isolationLevel: 'strict',
       backend: defaultBackend,
+      cubeSandboxEndpoint: policy?.cubeSandboxEndpoint || process.env.CUBESANDBOX_URL || 'http://127.0.0.1:49982',
+      cubeSandboxApiKey: policy?.cubeSandboxApiKey || process.env.CUBESANDBOX_API_KEY,
       dockerImage: 'node:20-alpine',
       allowedCommands: defaultAllowed,
       blockedPatterns: [
@@ -152,7 +171,14 @@ export class SandboxEngine {
   }
 
   public getSessionWorkspace(sessionId: string): string {
-    const sessionDir = path.join(this.workspaceRoot, sessionId);
+    const validSessionId = SandboxEngine.sanitizeSessionId(sessionId);
+    const sessionDir = path.resolve(this.workspaceRoot, validSessionId);
+
+    const relative = path.relative(this.workspaceRoot, sessionDir);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw new Error(`Security Violation: sessionId attempted directory escape: "${sessionId}"`);
+    }
+
     if (!fs.existsSync(sessionDir)) {
       fs.mkdirSync(sessionDir, { recursive: true });
     }
@@ -290,11 +316,85 @@ export class SandboxEngine {
       status: 'ALLOWED'
     });
 
-    // 4. Execution Dispatch: Docker vs Local
-    if (this.policy.backend === 'docker') {
+    // 4. Execution Dispatch: CubeSandbox vs Docker vs Local
+    if (this.policy.backend === 'cubesandbox') {
+      return this.executeInCubeSandbox(sessionId, sessionDir, commandLine, startTime, onOutput);
+    } else if (this.policy.backend === 'docker') {
       return this.executeInDocker(sessionId, sessionDir, commandLine, startTime, onOutput);
     } else {
       return this.executeInLocal(sessionId, sessionDir, commandLine, startTime, onOutput);
+    }
+  }
+
+  /**
+   * Executes a command inside TencentCloud CubeSandbox (RustVMM + KVM hardware microVM)
+   * 100% E2B SDK and REST API compatible.
+   * Enforces fail-closed enterprise boundary: if CubeSandbox is unreachable or fails,
+   * host execution fallback is strictly prohibited.
+   */
+  private async executeInCubeSandbox(
+    sessionId: string,
+    sessionDir: string,
+    commandLine: string,
+    startTime: number,
+    onOutput?: (chunk: string) => void
+  ): Promise<{ exitCode: number; stdout: string; stderr: string; executionTimeMs: number }> {
+    const endpoint = (this.policy.cubeSandboxEndpoint || 'http://127.0.0.1:49982').replace(/\/+$/, '');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+    if (this.policy.cubeSandboxApiKey) {
+      headers['X-API-Key'] = this.policy.cubeSandboxApiKey;
+    }
+
+    try {
+      const response = await fetch(`${endpoint}/sandboxes/${sessionId}/commands`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          cmd: commandLine,
+          timeout: Math.round(this.policy.maxExecutionTimeMs / 1000)
+        }),
+        signal: AbortSignal.timeout(this.policy.maxExecutionTimeMs + 5000)
+      });
+
+      const duration = Date.now() - startTime;
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`CubeSandbox endpoint returned HTTP ${response.status}: ${errText}`);
+      }
+
+      const result: any = await response.json();
+      const stdout = result.stdout || '';
+      const stderr = result.stderr || '';
+      const exitCode = result.exitCode ?? (result.exit_code ?? 0);
+
+      if (stdout && onOutput) onOutput(stdout);
+      if (stderr && onOutput) onOutput(stderr);
+
+      this.logAudit({
+        sessionId,
+        action: 'EXECUTE',
+        command: `[CubeSandbox] ${commandLine}`,
+        status: exitCode === 0 ? 'COMPLETED' : 'FAILED',
+        details: `Exit code: ${exitCode}, Duration: ${duration}ms`
+      });
+
+      return {
+        exitCode,
+        stdout,
+        stderr,
+        executionTimeMs: duration
+      };
+    } catch (err: any) {
+      this.logAudit({
+        sessionId,
+        action: 'BLOCKED_ATTEMPT',
+        command: `[CubeSandbox] ${commandLine}`,
+        status: 'FAILED',
+        details: `CubeSandbox microVM execution error: ${err.message}. Fail-closed enterprise policy prevents host fallback.`
+      });
+      throw new Error(`Security Violation: CubeSandbox microVM execution failed: ${err.message}. Fail-closed enterprise policy prohibits host fallback.`);
     }
   }
 

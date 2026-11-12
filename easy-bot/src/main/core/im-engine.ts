@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { ModelClient } from './model-client.js';
 import { SandboxEngine } from './sandbox-engine.js';
 import { HybridRAGEngine } from './hybrid-rag.js';
+import { OctopGatewayDriver } from './octop-driver.js';
 
 export interface Expert {
   id: string;
@@ -32,7 +33,7 @@ export interface Channel {
 export interface Connector {
   id: string;
   name: string;
-  type: 'wecom' | 'dingtalk' | 'feishu' | 'github' | 'database' | 'webhook';
+  type: 'octop' | 'wecom' | 'dingtalk' | 'feishu' | 'github' | 'database' | 'webhook';
   description: string;
   status: 'connected' | 'unconfigured' | 'error';
   config: Record<string, any>;
@@ -92,175 +93,106 @@ export class IMEngine {
   }
 
   private initDefaultData() {
-    // 1. Initial Industry & Enterprise Specialist Roster (6 大实用工业与企业专家)
+    // 1. Initial Domain-Neutral Enterprise Specialists (企业级通用专家矩阵)
     const activeModelName = this.modelClient?.getConfig()?.model || process.env.OPENAI_MODEL || 'default-chat-model';
     const defaultExperts: Expert[] = [
       {
-        id: 'exp-academic',
-        name: '张导师',
-        avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=academic',
-        title: '高校科研与论文指导专家 (Academic & Research Advisor)',
-        description: '国家重点实验室资深科研带头人。精通中英文学术论文写作、国家自然科学基金申报、实验方案设计与学术规范审查。',
-        systemPrompt: '你是高校科研与研究生论文指导专家张导师。熟悉国家自然科学基金立项要求、顶级期刊投稿规范与学术伦理。能够严谨客观地评审开题报告、审阅实验设计并指引文献调研方向。',
-        skills: ['literature-review', 'grant-proposal-check', 'academic-writing-audit'],
+        id: 'exp-arch',
+        name: '张云峰',
+        avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=arch',
+        title: '企业系统架构师 (Enterprise System Architect)',
+        description: '专注高并发分布式系统、微内核插件治理、企业数据中台治理与安全边界架构。',
+        systemPrompt: '你是资深企业系统架构师张云峰。精通微服务设计、微沙箱多租户隔离、高可用保障与技术选型。回答条理清晰，注重系统解耦与防御性架构设计。',
+        skills: ['architecture-review', 'high-availability-design', 'security-isolation-audit'],
         model: activeModelName,
         status: 'online',
-        color: '#722ed1',
-        tags: ['科研立项', '论文审稿', '文献综述', '基金申报']
+        color: '#1890ff',
+        tags: ['系统解耦', '微沙箱', '高可用', '架构评审']
       },
       {
-        id: 'exp-edu-affairs',
-        name: '王老师',
-        avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=affairs',
-        title: '教务处与学籍规章答疑专家 (Academic Affairs Guide)',
-        description: '熟悉高校本科与研究生培养方案、选课排课规程、学分置换、毕业设计要求与出国成绩审核。',
-        systemPrompt: '你是高校教务处综合事务主管王老师。解答各类选课、免修、学分置换、考场纪律与毕业资格审核咨询。回答亲切和蔼、条理清晰，引述具体规章条款。',
-        skills: ['curriculum-policy-search', 'credit-exchange-guide', 'graduation-audit'],
-        model: activeModelName,
-        status: 'online',
-        color: '#13c2c2',
-        tags: ['培养方案', '选课答疑', '学分审核', '毕业规章']
-      },
-      {
-        id: 'exp-equip',
-        name: '马工',
-        avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=equip',
-        title: '设备运维与故障诊断专家 (Maintenance Engineer)',
-        description: '精通数控机床、自动化产线、注塑冲压与工业电气维保；快速解读设备报错代码 (E-xx) 并提供安全排错步骤。',
-        systemPrompt: '你是资深工业设备运维专家马工。熟悉机械电气结构、PLC报警代码与设备日常点检维保。回答严谨条理，优先给出停机排查逻辑、安全断电规程与应急处置指南。',
-        skills: ['equipment-diagnostics', 'fault-code-lookup', 'safety-reset'],
-        model: activeModelName,
-        status: 'online',
-        color: '#1677ff',
-        tags: ['设备排错', '故障代码', '维保SOP', '电气安全']
-      },
-      {
-        id: 'exp-qa',
-        name: '刘主管',
-        avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=qa',
-        title: '生产工艺与质检合规专家 (Quality & Process)',
-        description: '熟悉作业指导书 (SOP)、公差配合、制程检验标准 (IPQC/FQC) 与不良品缺陷成因排查。',
-        systemPrompt: '你是资深生产工艺与质检主管刘主管。熟悉加工工艺规程、尺寸公差与质检检验标准。擅长分析产品缺陷（起泡、尺寸偏差、划痕、缩水）原因，提供纠偏与工艺参数优化建议。',
-        skills: ['process-sop-verify', 'tolerance-check', 'defect-root-cause'],
+        id: 'exp-code',
+        name: '李工',
+        avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=code',
+        title: '全栈研发工程师 (Full-Stack Engineer)',
+        description: '熟悉主流前后端技术栈、API规范设计、单元测试覆盖率提升与代码重构优化。',
+        systemPrompt: '你是资深研发工程师李工。编写干净、高效且具备健壮错误处理的高质量工程代码。',
+        skills: ['fullstack-dev', 'code-refactor', 'test-automation'],
         model: activeModelName,
         status: 'online',
         color: '#52c41a',
-        tags: ['工艺指导书', '质检标准', '缺陷排查', '制程把控']
+        tags: ['API设计', '代码审查', '单元测试', '性能优化']
       },
       {
-        id: 'exp-bom',
-        name: '王科长',
-        avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=bom',
-        title: '物料BOM与采购核算员 (BOM & Costing)',
-        description: '擅长多层级物料清单 (BOM) 核对、工艺定额损耗计算、非标定制件技术参数比对与快速成本预估。',
-        systemPrompt: '你是物料与成本核算专家王科长。熟悉原材料规格、BOM结构与生产定额损耗。擅长比对非标订单与物料参数，提供准确的损耗估算与报价辅助。',
-        skills: ['bom-diff', 'material-loss-calc', 'cost-estimation'],
+        id: 'exp-ops',
+        name: '陈主管',
+        avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=ops',
+        title: '云原生与自动化运维专家 (DevOps & SRE)',
+        description: '精通容器编排、CI/CD流水线、网络隔离、密钥管理与线上突发告警应急处置。',
+        systemPrompt: '你是资深 SRE 运维专家陈主管。严守生产高可用红线与安全操作规范。',
+        skills: ['k8s-deploy', 'ci-cd-pipeline', 'incident-response'],
         model: activeModelName,
         status: 'online',
-        color: '#faad14',
-        tags: ['BOM比对', '物料损耗', '定额核算', '成本预估']
+        color: '#fa8c16',
+        tags: ['CI/CD', '容器云', '故障响应', '安全合规']
       },
       {
-        id: 'exp-safe',
-        name: '赵安全',
-        avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=safe',
-        title: '厂区安环与安全生产专员 (EHS & Safety)',
-        description: '专注于安全生产操作规程、危险作业审批、消防应急自救、劳动防护标准与环保巡检合规。',
-        systemPrompt: '你是企业安全与环保专员赵安全。时刻强调“安全第一、预防为主”，严格遵守特种作业、消防通道、劳保穿戴与环保台账标准，严厉杜绝违章冒险作业。',
-        skills: ['ehs-audit', 'fire-safety', 'hazard-identification'],
-        model: activeModelName,
-        status: 'online',
-        color: '#ff4d4f',
-        tags: ['安全生产', '消防应急', 'EHS合规', '隐患排查']
-      },
-      {
-        id: 'exp-admin',
-        name: '陈专员',
-        avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=admin',
-        title: '综合行政与规章制度专员 (Admin & Policy)',
-        description: '熟悉企业规章制度、考勤排班、请假报销、宿舍用餐与新员工入职安全培训制度。',
-        systemPrompt: '你是综合行政与制度专员陈专员。熟悉企业内部制度、请休假规程、差旅报销与行政审批，解答规范亲和，帮助员工快速搞清流程规矩。',
-        skills: ['policy-query', 'leave-expense-guide', 'employee-handbook'],
+        id: 'exp-knowledge',
+        name: '知识专员',
+        avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=knowledge',
+        title: '企业知识与制度问答专员 (Knowledge Specialist)',
+        description: '熟悉企业规章制度、报销流程、知识资产检索与通用协同支持。',
+        systemPrompt: '你是企业通用知识与制度答疑专员。解答各类流程、考勤报销、文档检索咨询。条理清晰，引述具体规章。',
+        skills: ['policy-query', 'knowledge-search', 'onboarding-guide'],
         model: activeModelName,
         status: 'online',
         color: '#722ed1',
-        tags: ['规章制度', '考勤休假', '报销流程', '行政支持']
-      },
-      {
-        id: 'exp-it',
-        name: '周工',
-        avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=it',
-        title: '办公IT与网络技术专员 (IT & Technical Support)',
-        description: '负责厂区网络与打印机调试、系统账号与软件排障、数据备份与共享文件夹权限管理。',
-        systemPrompt: '你是企业IT运维专员周工。快速排查局域网连接、网络共享文件夹、打印机脱机与账号权限问题，提供清晰的 step-by-step 排错步骤。',
-        skills: ['network-diagnostics', 'printer-troubleshoot', 'backup-verify'],
-        model: activeModelName,
-        status: 'online',
-        color: '#13c2c2',
-        tags: ['网络配置', '共享文件夹', '打印机排障', '系统支持']
+        tags: ['规章制度', '知识检索', '协同指引']
       }
     ];
 
     defaultExperts.forEach(exp => this.experts.set(exp.id, exp));
 
-    // 2. Preloaded Channels (企业 IM 频道)
+    // 2. Domain-Neutral Enterprise Channels (企业通用协作总线)
     const defaultChannels: Channel[] = [
       {
         id: 'chan-all',
-        name: '企业协同大厅 (General Hall)',
-        description: '全员生产与业务协同讨论群，支持 @任意专家 触发跨岗位协同与即时问答。',
+        name: '企业协同总线 (General Hall)',
+        description: '跨部门企业级 Agent 交互、协同派工与任务分发',
         isGroup: true,
-        expertIds: ['exp-equip', 'exp-qa', 'exp-bom', 'exp-safe', 'exp-admin', 'exp-it'],
+        expertIds: ['exp-arch', 'exp-code', 'exp-ops', 'exp-knowledge'],
         unreadCount: 0,
-        lastMessage: 'EasyBot 工业协同中心已启动，所有制造与运维专家在线就绪。',
+        lastMessage: 'EasyBot 企业级通用协作中枢已就绪。',
         lastMessageTime: new Date().toLocaleTimeString()
       },
       {
-        id: 'chan-equip',
-        name: '设备报修与故障排查 (Equipment & Maintenance)',
-        description: '设备故障代码 E-xx、电气报警、机械异响与日常点检维保指导。',
+        id: 'chan-devops',
+        name: '研发效能与安全运维 (Engineering & DevOps)',
+        description: '架构设计、代码审查、CI/CD 自动化流水线与安全合规审计',
         isGroup: true,
-        expertIds: ['exp-equip', 'exp-it'],
+        expertIds: ['exp-code', 'exp-ops'],
         unreadCount: 0,
-        lastMessage: '设备故障排查专家马工已就绪，请输入机床型号或报警代码。',
-        lastMessageTime: new Date().toLocaleTimeString()
-      },
-      {
-        id: 'chan-qa',
-        name: '工艺SOP与质检规范 (Quality & Process SOP)',
-        description: '作业指导书 SOP 速查、公差配合要求、不合格品缺陷原因分析与纠正措施。',
-        isGroup: true,
-        expertIds: ['exp-qa'],
-        unreadCount: 0,
-        lastMessage: '生产工艺与质检主管刘主管已就绪，可随时核对公差与标准。',
-        lastMessageTime: new Date().toLocaleTimeString()
-      },
-      {
-        id: 'chan-bom',
-        name: '物料BOM与成本核算 (Materials & BOM)',
-        description: '非标定制件物料清单比对、定额损耗率计算与原材料规格确认。',
-        isGroup: true,
-        expertIds: ['exp-bom'],
-        unreadCount: 0,
-        lastMessage: 'BOM物料与成本核算员王科长在线，可上传物料清单核算定额。',
-        lastMessageTime: new Date().toLocaleTimeString()
-      },
-      {
-        id: 'chan-safe',
-        name: '安全环保与综合事务 (EHS & Administration)',
-        description: '安全生产操作规程、消防应急处置、考勤休假与员工手册速查。',
-        isGroup: true,
-        expertIds: ['exp-safe', 'exp-admin'],
-        unreadCount: 0,
-        lastMessage: '安环专员赵安全与行政专员陈专员在线，守护厂区安全生产。',
+        lastMessage: '架构与运维专家在线就绪。',
         lastMessageTime: new Date().toLocaleTimeString()
       }
     ];
 
     defaultChannels.forEach(c => this.channels.set(c.id, c));
 
-    // 3. Preloaded Connectors (官方与企业生态连接器)
+    // 3. Preloaded Connectors (含 TencentCloud Octop 统一网关)
     const defaultConnectors: Connector[] = [
+      {
+        id: 'conn-octop',
+        name: 'TencentCloud Octop 统一通讯网关',
+        type: 'octop',
+        description: '基于腾讯云开源 Octop Gateway，打通企业微信、钉钉、飞书与 QQ 多平台统一路由与消息下发。',
+        status: process.env.OCTOP_GATEWAY_URL ? 'connected' : 'unconfigured',
+        config: {
+          endpoint: process.env.OCTOP_GATEWAY_URL || 'http://127.0.0.1:5000',
+          defaultPlatform: 'wecom'
+        },
+        lastSync: '待连接',
+        stats: { totalDispatched: 0, successRate: 100 }
+      },
       {
         id: 'conn-wecom',
         name: '企业微信 (WeCom) 群机器人与消息应用',
@@ -568,6 +500,30 @@ export class IMEngine {
 
     const startTime = Date.now();
     try {
+      if (conn.type === 'octop') {
+        const octop = new OctopGatewayDriver({ endpoint: webhookUrl });
+        const isUp = await octop.isAvailable();
+        const latencyMs = Date.now() - startTime;
+        if (isUp) {
+          conn.status = 'connected';
+          conn.lastSync = '刚刚';
+          this.saveToDisk();
+          return {
+            success: true,
+            latencyMs,
+            message: `[${conn.name}] 成功连通 TencentCloud Octop 网关集群 (${latencyMs}ms)`
+          };
+        } else {
+          conn.status = 'error';
+          this.saveToDisk();
+          return {
+            success: false,
+            latencyMs,
+            message: `[${conn.name}] Octop 网关状态检查未通过`
+          };
+        }
+      }
+
       const testPayload = conn.type === 'wecom'
         ? { msgtype: 'text', text: { content: '[EasyBot 探针] 连通性测试消息：系统已成功连通。' } }
         : conn.type === 'dingtalk'

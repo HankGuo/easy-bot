@@ -41,11 +41,31 @@ export class DomainPackManager {
     return Array.from(this.activePacks.values());
   }
 
+  public getRoleAliases(): Record<string, string> {
+    const combined: Record<string, string> = {};
+    for (const pack of this.activePacks.values()) {
+      if (pack.roleAliases) {
+        Object.assign(combined, pack.roleAliases);
+      }
+    }
+    return combined;
+  }
+
+  public getIdentityMapper(): ((attrs: Record<string, any>) => any) | undefined {
+    for (const pack of this.activePacks.values()) {
+      if (pack.identityMapping) {
+        return pack.identityMapping;
+      }
+    }
+    return undefined;
+  }
+
   /**
-   * Initializes and mounts active domain packs based on config or EASYBOT_PACKS environment variable
+   * Initializes and mounts active domain packs based on config or EASYBOT_PACKS environment variable.
+   * Defaults strictly to 'generic' for 100% domain-neutral enterprise core.
    */
   public async loadActivePacks(packSpecifier?: string, context?: KernelContext): Promise<string[]> {
-    const raw = packSpecifier || process.env.EASYBOT_PACKS || 'all';
+    const raw = packSpecifier || process.env.EASYBOT_PACKS || 'generic';
     const tokens = raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
     
     let targetPackIds: string[] = [];
