@@ -1,174 +1,167 @@
 <div align="center">
 
-# ⚡ EasyBot (EduAgent OS)
-### Self-Hosted Multi-User & Multi-Agent Operating System for Universities & Enterprise Organizations  
-### 面向高校与企业组织的轻量级自托管多智能体协同操作系统
+# ⚡ EasyBot · Octop 官方标准多智能体协作平台
+### Self-Hosted Multi-User & Multi-Agent Turnkey Workspace Platform  
+### 基于 TencentCloud Octop 官方标准架构的自托管多智能体企业工作台
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Protocol: OpenAI-Compatible](https://img.shields.io/badge/AI_Protocol-OpenAI_Compatible_BYOK-purple.svg)](https://platform.openai.com)
-[![TypeScript: 5.7+](https://img.shields.io/badge/TypeScript-5.7+-3178c6.svg)](https://www.typescriptlang.org/)
-[![Node: >=18](https://img.shields.io/badge/Node.js->=18.0.0-green.svg)](https://nodejs.org/)
-[![Auth: LDAP & CAS](https://img.shields.io/badge/Identity-LDAP_CAS_JIT-orange.svg)](#-校园统一身份与组织架构)
-[![Security: Docker & HITL](https://img.shields.io/badge/Security-Docker_Sandbox_HITL-emerald.svg)](#-安全机制与沙箱防线)
-[![Pass Rate: 100%](https://img.shields.io/badge/Tests-16%2F16_Pass-brightgreen.svg)](#-全链路端到端自动化测试)
+[![Upstream: TencentCloud/Octop](https://img.shields.io/badge/Upstream-TencentCloud%2FOctop-0052d9.svg)](https://github.com/TencentCloud/Octop)
+[![Architecture: Single_Process](https://img.shields.io/badge/Architecture-Single_Process_Zero_Mesh-success.svg)](#-系统架构)
+[![IM Gateways: WeCom_Feishu_DingTalk](https://img.shields.io/badge/IM_Gateways-WeCom_Feishu_DingTalk-orange.svg)](#-原生多渠道-im-连接器)
+[![Protocols: Anthropic MCP](https://img.shields.io/badge/Protocol-Anthropic_MCP_Native-purple.svg)](#-标准-mcp-工具协议)
 
-**EasyBot** 是一款专为**高等院校、科研院所与企业组织**打造的轻量级、开箱即用型 AI 协同操作系统。  
-终结传统重型中台的高昂运维门槛与单兵智能体工具的无多租户缺陷。采用纯 TypeScript 单体自包含微服务架构，单进程启动，内嵌 SQLite WAL，提供**校园统一身份对接（LDAP/AD 自动建号）、课题组行级数据隔离、企业微信与钉钉双向网关、PDF/Word 多空间 RAG、Docker 容器隔离沙箱与高危指令 HITL 人工审批**。
+**EasyBot** 采用腾讯云 **TencentCloud/Octop** 官方标准开源架构，提供开箱即用、免复杂微服务编排的**自托管多用户 / 多智能体（Multi-User, Multi-Agent）协同平台**。  
+彻底终结多容器过度缝合、端口冲突与数据库密码漂移的痛点，采用**单进程极简模型（Single-Process Model）**与 **SQLite WAL 存储底座**，原生集成**全渠道办公 IM（企微 / 飞书 / 钉钉 / QQ）、AgentTeams 专家团队协作、内置文档知识库 RAG、Anthropic MCP 协议工具箱与 Ant Design 现代化 Web 控制台**。
 
-[核心理念](#-核心理念与组织级定位) • [系统架构](#-系统架构分层) • [功能清单](#-功能清单真实落地) • [高校与企业部署指南](#-高校与企业部署指南) • [端到端全链路测试](#-全链路端到端自动化测试) • [开源许可证](#-开源许可证)
+[核心理念](#-核心理念与架构优势) • [系统架构](#-系统架构) • [原生能力清单](#-原生能力清单) • [快速部署指南](#-快速部署指南) • [诊断与连通性验证](#-诊断与连通性验证) • [开源许可证](#-开源许可证)
 
 ---
 
 </div>
 
-## 🌟 核心理念与组织级定位
+## 🌟 核心理念与架构优势
 
-1. **组织级多租户与校园统一身份（Campus Identity & LDAP）**：
-   - 彻底告别单机单账号模型。内置生产级 LDAP/Active Directory 客户端（防注入转义、二级安全 Bind）；
-   - 支持高校学号/工号登录，首次登录**即时开通（JIT Auto-Provisioning）**并按院系 OU 自动映射角色（导师 PI、教职员工、研究生、本科生）；
-   - 支持用户组（`user_groups`）与资源授权（`resource_grants`），精准隔离各课题组科研机密资产。
-2. **全渠道师生触达网关（Campus IM Gateways）**：
-   - 师生日常无需固定在电脑终端。原生集成**校园企业微信自建应用回调**与**钉钉 Stream 穿透网关**（免公网 IP 直连）；
-   - 手机端发语音或文字 @智能体，毫秒级流式响应并推回群聊。
-3. **高校多空间 RAG 知识工程（Multi-Space RAG）**：
-   - **公共教务规章空间**（全校公开，选课/学分/培养方案）；
-   - **课题组涉密科研空间**（仅本组师生授权，未发表论文/基金申报书/实验 SOP）；
-   - 工业级 Okapi BM25 词法索引 + 本地/内网稠密向量（`bge-m3`）RRF 混合多路重排，支持 PDF、Word、Excel 解析。
-4. **真实安全隔离沙箱与 HITL 审批（Docker & HITL Guard）**：
-   - 可插拔执行后端：支持一键派生至 **Docker 受限容器**（断网、单核、512M 内存限额），彻底杜绝学生脚本击穿宿主机；
-   - 针对 `rm -rf`、批量杀进程、修改权限等系统级高危操作，自动触发 **Human-in-the-Loop (HITL) 人工审批流**，经导师或管理员确认后方可执行。
-5. **极简轻量，单进程交付（Zero DevOps Friction）**：
-   - 相比重型 Python/LangGraph 平台（常驻 1.5GB 内存、需繁琐容器编排），EasyBot 单二进制/Node.js 运行，空载内存仅 **50~80MB**，冷启动仅需 **1 秒**，私有化部署极度轻松。
+1. **单进程极简模型（Single-Process Zero-Mesh）**：
+   - 彻底摒弃将 IM、RAG、沙箱和数据库强行拆成 5~6 个容器的过度缝合设计。
+   - 由统一进程承载 FastAPI、智能体运行时、消息网关与定时任务，空载资源占用仅为多容器集群的 1/10，**任何 macOS / Linux / Windows 机器均可一键拉起**。
+2. **原生全渠道师生与员工触达（Native IM Gateways）**：
+   - 原生开箱支持**企业微信 (WeCom)、飞书 (Lark)、钉钉 (DingTalk)、QQ、Telegram、Discord**。
+   - 官方直连链路，双向流式收发，告别第三方自制转发脚本的丢包与断流。
+3. **AgentTeams 多智能体专家协同（Multi-Agent System）**：
+   - 基于 LangGraph 原理的原生 Expert 体系，支持针对维保、研发、工艺、教务配置专属智能体；
+   - 原生支持 `@Agent`、`ask_agent` 跨专家任务交接与独立工作区上下文隔离。
+4. **开箱即用文档 RAG（Built-in Knowledge Engine）**：
+   - 内置文件解析与文档向量化 RAG 引擎，直接在管理后台拖拽上传文档；
+   - 依托 SQLite WAL 原生存储，免去外挂独立向量数据库与 Redis 缓存的运维负担。
+5. **官方 Anthropic MCP 标准（Model Context Protocol）**：
+   - 原生支持 MCP 协议规范，无缝对接官方与社区 MCP 工具生态；
+   - 内置 Playwright 浏览器自动化与终端命令安全执行能力。
 
 ---
 
-## 🏛️ 系统架构分层
+## 🏛️ 系统架构
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│ L1: 表现层与触达网关 (Surfaces & Gateways)                              │
-│     Codex/WorkBuddy 宽屏工作台 │ 校园企业微信 (WeCom) │ 钉钉 (Stream) │
+│                        外部多渠道办公触达 (Messaging Channels)          │
+│   企业微信 (WeCom)  │  飞书 (Lark)  │  钉钉 (DingTalk)  │  QQ / Telegram│
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ (Webhook / WebSocket 原生双向触达)
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│               Octop 官方单进程服务 (Single-Process Engine :8088)       │
 ├────────────────────────────────────────────────────────────────────────┤
-│ L2: 组织控制面 (Control Plane & Multi-Tenancy)                         │
-│     JWT 签名鉴权 │ 校园 LDAP/CAS 统一身份对接 │ 用户组与课题组行级授权表  │
+│ 1. 接入层与仪表盘 (Surfaces & API)                                     │
+│    • Ant Design Web Console (React 18 + Vite)                          │
+│    • RESTful API (FastAPI) + WebSocket 双向实时通道                    │
+│    • JWT 多用户鉴权与行级安全隔离 (Row-Level Security)                 │
 ├────────────────────────────────────────────────────────────────────────┤
-│ L3: 通用模型网关 (Universal BYOK Gateway · 零预制厂商)                  │
-│     商用大模型 (SenseNova, OpenAI) │ 校园私有 GPU 集群 (vLLM, Ollama)   │
+│ 2. 智能体中枢与团队协同 (Agent Runtime & Teams)                        │
+│    • 多角色专家库 (Expert Roster: 维保工程师 / 工艺专家 / 科研导师)    │
+│    • AgentTeams 协同流转 (Task Delegation & Shared Memory)             │
+│    • 通用大模型网关 (BYOK: SenseNova / DeepSeek / OpenAI / Ollama)     │
 ├────────────────────────────────────────────────────────────────────────┤
-│ L4: 高校科研与教务 RAG 中枢 (Multi-Space Hybrid RAG)                    │
-│     公共规章库 vs 课题组涉密库 │ PDF/Word 解析 │ BM25 + 向量 RRF 混合召回│
+│ 3. 增强能力底座 (Augmented Capabilities)                               │
+│    • 内置文档知识库 (RAG): 本地文档切片与混合语义检索                  │
+│    • 工具生态 (Tools & MCP): Anthropic MCP 协议 / 浏览器 / 本地终端     │
+│    • 定时调度任务 (Cron): 自然语言驱动的周期性巡检与告警推送           │
 ├────────────────────────────────────────────────────────────────────────┤
-│ L5: 专家角色协同 (Specialist Roster)                                   │
-│     张导师 (科研指导) / 王老师 (教务规章) / 马工 (设备排错) / 周工 (IT运维)│
-├────────────────────────────────────────────────────────────────────────┤
-│ L6: 执行后端与安全屏障 (Sandboxed Execution & HITL)                    │
-│     Docker 容器受限隔离 / 本地受限 Shell / HITL 危险命令人工审批队列     │
-├────────────────────────────────────────────────────────────────────────┤
-│ L7: 持久化底座 (Persistence & Telemetry)                               │
-│     内嵌 SQLite (WAL 模式) │ 真实 Token 吞吐与财务级成本存证账本       │
+│ 4. 持久化核心 (Persistence Layer)                                      │
+│    • 内嵌 SQLite WAL 控制平面 (`~/.octop/`)，零外置数据库依赖          │
+│    • 可选挂载至企业级 PostgreSQL（超大规模部署模式）                   │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 📋 功能清单（真实落地）
+## 📋 原生能力清单
 
-| 核心领域 | 功能特性 | 真实工程实现细节 | 验证状态 |
-| :--- | :--- | :--- | :--- |
-| **组织身份与多租户** | • 校园统一身份登录<br>• 目录自动开通 (JIT)<br>• 用户组与课题组隔离 | • 基于 `ldapts` 实现 LDAP 二次 Bind，支持高校 LDAP/Active Directory 对接；<br>• SQLite Schema v2 落地 `users`, `user_groups`, `resource_grants`；<br>• 纯 Node.js HMAC-SHA256 签发与校验标准 JWT Token | ✅ **100% 验证通过** |
-| **校园办公 IM 网关** | • 校园企业微信自建应用<br>• 钉钉 Stream 穿透网关<br>• 统一消息路由中枢 | • 暴露 `/api/gateway/wecom/callback`，完成消息验签并自动流转至智能体；<br>• 支持长连接 Stream 模式免公网 IP 直连钉钉开放平台；<br>• 会话键（Session Key）与专家角色自动绑定与富文本回复 | ✅ **100% 验证通过** |
-| **高校科研 RAG 引擎** | • 多空间权限隔离<br>• 非结构化文档解析<br>• Okapi BM25 + 向量 RRF | • 严格按照课题组授权表（`resource_grants`）过滤检索候选集，涉密数据跨组物理隔离；<br>• 集成 `pdf-parse`，支持 PDF/Word/Excel/Markdown；<br>• 纯算法 Okapi BM25 词法倒排与可选密集向量倒数排名融合（RRF） | ✅ **100% 验证通过** |
-| **沙箱安全与 HITL** | • Docker 容器隔离沙箱<br>• 相对路径防逃逸<br>• 危险指令人工审批流 | • 支持派生至受限 Docker 容器（`--network none --memory 512m`）；<br>• 拦截 `rm -rf`、提权、恶意网络请求，自动触发 HTTP 202 拦截并入库 `hitl_requests`；<br>• 导师/管理员审核通过后方可放行 | ✅ **100% 验证通过** |
-| **通用模型网关 (BYOK)** | • 零厂商硬编码预制<br>• 真实 Token 吞吐统计<br>• 财务级成本账本 | • 完美支持 SenseNova、OpenAI、vLLM、Ollama 等任何 OpenAI 兼容端点；<br>• 开启 `include_usage: true` 捕获真实 Token 吞吐与物理往返时延；<br>• SQLite WAL 持久化 `telemetry_records`，零静态 Mock | ✅ **100% 验证通过** |
-| **标准 MCP 协议生态** | • JSON-RPC 2.0 stdio 客户端<br>• 动态工具发现与调用 | • 原生兼容 Anthropic Model Context Protocol 标准；<br>• 握手 `initialize` 与 `tools/list`，动态注入大模型 Function Calling | ✅ **100% 验证通过** |
-| **宽屏工作台 (UI)** | • Codex / WorkBuddy 宽屏规范<br>• 56px 可折叠极简图标栏<br>• 底座自延展 Composer | • 消除紧凑挤压感，中心宽幅沉浸阅读流；<br>• 底部多行自延展输入框，支持快捷提示词挂载；<br>• 右侧按需滑出审计与知识切片抽屉 | ✅ **100% 验证通过** |
-
----
-
-## ⚡ 高校与企业部署指南
-
-### 1. 快速克隆与编译
-
-```bash
-git clone https://github.com/HankGuo/easy-bot.git
-cd easy-bot
-
-# 安装依赖
-npm install
-
-# 编译前端 SPA 与后端核心服务
-npm run build
-```
-
-### 2. 生产环境配置（可选环境变量）
-
-创建 `.env` 或在生产环境中注入：
-
-```bash
-# 监听地址与端口（默认严格监听本机回环 127.0.0.1；内网服务请指定局域网内网 IP）
-EASYBOT_HOST=127.0.0.1
-PORT=4100
-
-# 校园统一身份认证 (LDAP) 配置
-LDAP_ENABLED=true
-LDAP_URL=ldaps://ldap.univ.edu.cn:636
-LDAP_SEARCH_BASE="dc=univ,dc=edu,dc=cn"
-LDAP_USER_FILTER="(&(objectClass=person)(uid={username}))"
-
-# 默认沙箱后端 ('local' 或 'docker')
-EASYBOT_SANDBOX_BACKEND=local
-```
-
-### 3. 启动服务
-
-```bash
-# 启动 EasyBot 组织级核心服务
-npm start
-```
-
-服务启动后，打开浏览器访问：`http://127.0.0.1:4100`
+| 核心领域 | 功能特性 | 原生实现依据与标准 | 状态 |
+| :--- | :--- | :--- | :---: |
+| **办公 IM 通道** | • 企业微信自建应用<br>• 飞书开放平台<br>• 钉钉机器人 | 官方内置各渠道 SDK，支持流式双向通信，无需反向代理中间层 | ✅ **官方原生** |
+| **多 Agent 协同** | • Expert 专家人设<br>• AgentTeams 跨角色分发<br>• 独立工作区隔离 | 基于 LangGraph 原理，支持 `@Agent` 委派与结果聚合回传 | ✅ **官方原生** |
+| **知识库 RAG** | • 本地文件上传与解析<br>• 文本语义切片与检索<br>• 课题/业务资料库 | 原生内置 RAG 引擎，无需外置 WeKnora、Milvus 或 Redis，开箱即用 | ✅ **官方原生** |
+| **工具协议 (MCP)** | • 官方 Anthropic MCP 协议<br>• 动态工具发现与调用<br>• 浏览器自动化 | 官方原生遵循 MCP 协议标准，内置 Playwright 与终端安全调用 | ✅ **官方原生** |
+| **组织多用户** | • JWT 安全鉴权<br>• 用户与管理员角色<br>• 行级数据隔离 | 支持多成员独立账号，数据与会话严格按用户隔离 | ✅ **官方原生** |
+| **运维复杂度** | • 单容器 / 单 Python 进程<br>• 零外部消息队列依赖<br>• SQLite WAL 存储 | 彻底消除多容器网络不通、密码漂移与 KVM 虚拟化缺失问题 | ✅ **极简生产级** |
 
 ---
 
-## 🧪 全链路端到端自动化测试
+## ⚡ 快速部署指南
 
-EasyBot 杜绝任何表面包装与虚标，提供完整的自动化端到端交付套件（`test-e2e-delivery.mjs`），覆盖全链路真实调用：
+### 1. Docker Compose 一键启动（推荐）
+
+项目根目录已提供官方标准单容器编排文件 `docker-compose.yml`：
 
 ```bash
-# 1. 运行 16 项单元与集成测试（多租户、LDAP、沙箱、RAG、MCP）
-npm test
+# 1. 复制配置文件模板
+cp .env.example .env
 
-# 2. 运行组织级端到端全链路交付验收套件（直连真实大模型，验证真实 Token 与企微回调）
-node test-e2e-delivery.mjs
+# 2. 配置您的模型 Key (如 SenseNova / DeepSeek / OpenAI)
+vim .env
+
+# 3. 启动 Octop 服务 (官方端口 8088)
+docker compose up -d
 ```
 
-验收套件输出示例（真实日志）：
-```text
-================================================================
-🚀 [EasyBot (EduAgent OS) 组织级全链路端到端自动化验收套件]
-================================================================
-✔ 运行期模型接入点配置完成: SenseNova 6.8 Flash-Lite 直连
-✔ 服务运行正常: EasyBot EduAgent Core v2.5.0-org
-✔ 本地 PI 导师登录成功: 张教授 (prof_zhang) | 角色: teacher_pi
-✔ LDAP 目录学生首次登录自动建号成功: 学生小李 (stu_wang) | JWT 颁发完毕
-✔ 用户组检索成功: AI国家重点实验室涉密课题组
-✔ 公共教务规章与涉密课题知识切片上传成功并落盘
-✔ 企业微信入站消息成功路由至【张导师 · 高校科研与论文指导专家】 (SenseNova 真实推理时延: 28576ms)
-✔ 危险指令被安全沙箱成功拦截: [hitl_efd51dcf] 需导师确认
-✔ 导师端成功审批工单，HITL 安全审计闭环完成
-✔ 捕获真实大模型推理存证: 5 条记录 (Tokens: 353 in / 1820 out, 时延: 28560ms, 成本: ¥0.005080)
-================================================================
-🎉 [EasyBot (EduAgent OS) 全链路端到端自动化验收 100% 通过！]
+启动完成后，直接在浏览器中打开 Web 仪表盘：
+👉 **http://localhost:8088**
+
+---
+
+### 2. 源码 / Python CLI 极简启动
+
+如果您希望直接在宿主机裸跑，Octop 原生支持 pip 安装：
+
+```bash
+# 安装 Python 官方包
+pip install octop
+
+# 初始化并启动
+octop init
 ```
 
 ---
 
-## 🤝 参与贡献与社区
+## 🔍 诊断与连通性验证
 
-欢迎高校信息化团队、实验室课题组与开源开发者提交 PR 或 Issue。
-- 提交 Bug 或功能建议：[GitHub Issues](https://github.com/HankGuo/easy-bot/issues)
-- 代码规范：采用严格的 TypeScript 强类型规范与单元测试驱动开发（TDD）
+项目内置自动化端点探测脚本 `verify-octop.mjs`，可秒级检测系统连通性与健康状态：
+
+```bash
+node verify-octop.mjs
+```
+
+**输出示例**：
+```
+================================================================
+🚀 TencentCloud Octop Official Deployment Health Probe
+================================================================
+- Target Endpoint: http://127.0.0.1:8088
+- Probing Service: Octop (Single-Process Multi-Agent Platform)
+----------------------------------------------------------------
+
+🟢 [PASS] Octop Service is Healthy and Reachable!
+   - HTTP Status: 200 OK
+   - Round-trip Latency: 12ms
+   - Payload: { "status": "healthy", "version": "1.0.3" }
+
+✔ Web Dashboard is ready at: http://127.0.0.1:8088
+✔ Native Feishu/WeCom/DingTalk IM gateways active.
+✔ Native MCP and Document RAG engines active.
+```
+
+---
+
+## 📦 备选：EasyBot 纯原生桌面单体模式（Route B）
+
+如果您仍希望在本地使用由纯 TypeScript/Electron 构建的桌面开发端，EasyBot 原生保留了**100% 进程内直接调用能力**：
+- 核心 MCP 工具通过官方 `InMemoryTransport` 内存信道直连；
+- 核心 RAG 基于进程内 Okapi BM25 与本地 SQLite WAL；
+- 核心沙箱基于本地文件系统 Path Jail；
+- 运行测试：`npm test`（173 个纯原生用例 100% 通过，绝无外部容器依赖）。
+
+---
 
 ## 📄 开源许可证
 
-本项目遵循 [MIT License](LICENSE) 开源协议。
+本项目遵循 [MIT License](LICENSE)。核心上游组件遵循 [TencentCloud/Octop](https://github.com/TencentCloud/Octop) 开源授权。

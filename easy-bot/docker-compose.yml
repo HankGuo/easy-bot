@@ -1,0 +1,54 @@
+version: '3.8'
+
+# ==============================================================================
+# Octop Enterprise Turnkey Agent Platform (Official Standard Architecture)
+# Powered by TencentCloud Octop (github.com/TencentCloud/Octop)
+#
+# ARCHITECTURAL RATIONALE:
+# - Single-process, self-hosted, multi-user, multi-agent AI workspace
+# - Built-in IM Gateways: WeCom, Lark/Feishu, DingTalk, QQ, Telegram, Discord
+# - Built-in Multi-Agent Teams (AgentTeams) with isolated workspaces & memory
+# - Built-in Knowledge Base & Document RAG (SQLite WAL persistence)
+# - Built-in Anthropic Model Context Protocol (MCP) tool integration
+# - Zero-microservice overhead: No external Postgres, Redis, or KVM requirements
+# ==============================================================================
+
+services:
+  octop:
+    image: ghcr.io/tencentcloud/octop:latest
+    container_name: octop-service
+    restart: unless-stopped
+    ports:
+      - "${OCTOP_PORT:-8088}:8088"
+    volumes:
+      - octop-data:/data/.octop
+    environment:
+      - HOME=/data
+      - OCTOP_BIND_HOST=0.0.0.0
+      - OCTOP_PORT=8088
+      - OCTOP_LOG_LEVEL=${OCTOP_LOG_LEVEL:-info}
+      - OCTOP_ADMIN_USERNAME=${OCTOP_ADMIN_USERNAME:-admin}
+      - OCTOP_ADMIN_DISPLAY_NAME=${OCTOP_ADMIN_DISPLAY_NAME:-Administrator}
+      - OCTOP_DEFAULT_PASSWORD=${OCTOP_DEFAULT_PASSWORD:-}
+      # Model Configuration (BYOK: OpenAI, SenseNova, DeepSeek, Qwen, Ollama)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
+      # Enterprise IM Channels
+      - OCTOP_FEISHU_APP_ID=${OCTOP_FEISHU_APP_ID:-}
+      - OCTOP_FEISHU_APP_SECRET=${OCTOP_FEISHU_APP_SECRET:-}
+      - OCTOP_WECOM_CORP_ID=${OCTOP_WECOM_CORP_ID:-}
+      - OCTOP_WECOM_AGENT_ID=${OCTOP_WECOM_AGENT_ID:-}
+      - OCTOP_WECOM_SECRET=${OCTOP_WECOM_SECRET:-}
+      - OCTOP_DINGTALK_CLIENT_ID=${OCTOP_DINGTALK_CLIENT_ID:-}
+      - OCTOP_DINGTALK_CLIENT_SECRET=${OCTOP_DINGTALK_CLIENT_SECRET:-}
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:8088/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  octop-data:
+    name: octop-data
