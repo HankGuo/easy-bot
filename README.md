@@ -1,6 +1,10 @@
 <div align="center">
 
 # ⚡ EasyBot
+> **现在能干什么**｜企业级桌面 Agent 操作系统：通用 BYOK 网关 + 自助混合 RAG + 多 Agent 协作 + 零模拟遥测，并实现了标准 MCP 的 JSON-RPC 2.0 stdio 客户端（initialize / tools/list / tools/call）。
+> **30 秒跑起来**｜`git clone https://github.com/HankGuo/easy-bot.git && cd easy-bot/easy-bot && npm install && npm run build && npm start` —— 默认只监听 `127.0.0.1`，跨机访问需带 `Authorization: Bearer <TOKEN>`。
+> **谁在用**｜**最早期的项目之一，暂无外部使用者反馈** —— 欢迎成为第一个提 issue 的人。
+
 ### Lightweight Enterprise Agent Workspace · 轻量级企业桌面智能体操作系统
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
